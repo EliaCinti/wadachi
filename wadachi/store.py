@@ -47,70 +47,13 @@ class MemoryStore:
     # ── Database ──────────────────────────────────────────────
 
     def _init_db(self):
-        with self._conn() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS memories (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title       TEXT NOT NULL,
-                    slug        TEXT NOT NULL,
-                    project     TEXT NOT NULL DEFAULT 'global',
-                    tags        TEXT DEFAULT '[]',
-                    category    TEXT DEFAULT 'note',
-                    filepath    TEXT NOT NULL,
-                    created_at  TEXT NOT NULL,
-                    updated_at  TEXT NOT NULL,
-                    embedding   BLOB
-                );
+        """Porta il DB all'ultima versione dello schema (vedi wadachi/migrations/).
 
-                CREATE TABLE IF NOT EXISTS decisions (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    project     TEXT NOT NULL DEFAULT 'global',
-                    decision    TEXT NOT NULL,
-                    rationale   TEXT,
-                    alternatives TEXT,
-                    context     TEXT,
-                    created_at  TEXT NOT NULL,
-                    embedding   BLOB
-                );
-
-                CREATE TABLE IF NOT EXISTS projects (
-                    name        TEXT PRIMARY KEY,
-                    description TEXT,
-                    paths       TEXT DEFAULT '[]',
-                    created_at  TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS memory_versions (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    memory_id   INTEGER NOT NULL,
-                    content     TEXT NOT NULL,
-                    replaced_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS beliefs (
-                    memory_id     INTEGER PRIMARY KEY,
-                    confidence    REAL DEFAULT 0.7,
-                    status        TEXT DEFAULT 'active',
-                    valid_until   TEXT,
-                    sources       TEXT DEFAULT '[]',
-                    superseded_by INTEGER,
-                    last_reviewed TEXT,
-                    review_reason TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS insights (
-                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                    claim        TEXT NOT NULL,
-                    itype        TEXT NOT NULL,
-                    evidence_ids TEXT NOT NULL DEFAULT '[]',
-                    status       TEXT NOT NULL DEFAULT 'proposed',
-                    created_at   TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
-                CREATE INDEX IF NOT EXISTS idx_versions_memory ON memory_versions(memory_id);
-                CREATE INDEX IF NOT EXISTS idx_decisions_project ON decisions(project);
-            """)
+        Il runner fa il backup del .db prima di applicare qualsiasi migrazione
+        a un DB non vuoto; lo schema vive negli script 000N_*.py, non qui.
+        """
+        from wadachi.migrations import run_migrations
+        run_migrations(self.db_path)
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self.db_path))

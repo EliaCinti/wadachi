@@ -23,63 +23,63 @@ from wadachi.store import MemoryStore
 
 
 def get_graph_data(store: MemoryStore) -> dict:
-    """Build nodes + links from the brain database."""
-    memories = store.list_memories()
-    decisions = store.list_decisions()
-    projects = store.list_projects()
+    """Nodes + links dal VERO MemoryGraph: archi tipizzati, decisioni, tempo.
+
+    Il grafo web non è più un'euristica sui tag: è la stessa struttura dati
+    che alimenta recall associativo, why() e il sonno (Fase 7.B).
+    """
+    from wadachi.graph import MemoryGraph
+    from wadachi.entities import EntityGraph
+
+    g = MemoryGraph(store).build()
+    eg = EntityGraph(store)
+    if eg.graph_json.exists():
+        try:
+            g.load_entity_edges(str(eg.graph_json))
+        except Exception:  # noqa: BLE001 — best-effort
+            pass
+
+    mem_meta = {m["id"]: m for m in store.list_memories()}
+    dec_meta = {d["id"]: d for d in store.list_decisions(limit=100000)}
+
+    def key(nid: int) -> str:
+        return f"d{-nid}" if nid < 0 else f"m{nid}"
 
     nodes = []
-    for m in memories:
-        full = store.get_memory(m["id"])
-        nodes.append({
-            "id": f"m{m['id']}",
-            "title": m["title"],
-            "type": "memory",
-            "project": m["project"],
-            "category": m.get("category", "note"),
-            "tags": m.get("tags", []),
-            "preview": (full["content"][:200] + "...") if full and len(full["content"]) > 200 else (full["content"] if full else ""),
-        })
+    for nid, n in g.nodes.items():
+        if n.ntype == "decision":
+            d = dec_meta.get(-nid, {})
+            nodes.append({
+                "id": key(nid), "title": n.title[:70], "type": "decision",
+                "project": d.get("project", "global"), "category": "",
+                "tags": [], "created_at": d.get("created_at", ""),
+                "why": d.get("rationale", ""),
+                "alternatives": d.get("alternatives", ""),
+                "context": d.get("context", ""),
+                "preview": n.content[:200],
+            })
+        else:
+            m = mem_meta.get(nid, {})
+            nodes.append({
+                "id": key(nid), "title": n.title, "type": "memory",
+                "project": m.get("project", "global"), "category": n.category,
+                "tags": n.tags, "created_at": m.get("created_at", ""),
+                "preview": n.content[:220] + ("..." if len(n.content) > 220 else ""),
+            })
 
-    for d in decisions:
-        nodes.append({
-            "id": f"d{d['id']}",
-            "title": d["decision"][:60],
-            "type": "decision",
-            "project": d["project"],
-            "category": "",
-            "tags": [],
-            "preview": f"{d['rationale'][:150]}{'...' if len(d['rationale']) > 150 else ''}",
-        })
-
-    # Build links based on shared tags + same project
-    links = []
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            a, b = nodes[i], nodes[j]
-            strength = 0
-
-            # Shared tags
-            if a["tags"] and b["tags"]:
-                shared = set(a["tags"]) & set(b["tags"])
-                strength += len(shared)
-
-            # Same project (weaker link)
-            if a["project"] == b["project"] and a["project"] != "global":
-                strength += 0.3
-
-            if strength > 0:
-                links.append({
-                    "source": a["id"],
-                    "target": b["id"],
-                    "strength": round(strength, 1),
-                })
+    links = [{
+        "source": key(e.src), "target": key(e.dst),
+        "kind": e.kind, "rel": e.rel, "strength": round(e.weight, 2),
+    } for e in g.edges]
 
     return {
         "nodes": nodes,
         "links": links,
         "stats": store.stats(),
-        "projects": [p["name"] for p in projects],
+        "graph_stats": {"citation": sum(1 for e in g.edges if e.kind == "citation"),
+                        "semantic": sum(1 for e in g.edges if e.kind == "semantic"),
+                        "entity": sum(1 for e in g.edges if e.kind == "entity")},
+        "projects": [p["name"] for p in store.list_projects()],
     }
 
 
@@ -90,7 +90,7 @@ GRAPH_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Engram — Brain Graph</title>
+<title>wadachi 轍 — Brain Graph</title>
 <style>
   :root {
     --bg: #fafaf8; --bg2: #f0efe8; --bg3: #e8e7e0;
@@ -180,8 +180,8 @@ GRAPH_HTML = """<!DOCTYPE html>
 <body>
   <div class="header">
     <div>
-      <h1>Engram</h1>
-      <div class="subtitle">Brain knowledge graph</div>
+      <h1>wadachi 轍</h1>
+      <div class="subtitle">Typed knowledge graph · citation / semantic / entity · time-aware</div>
     </div>
     <div style="font-size:11px;color:var(--text3)">
       <span id="search-mode"></span>
@@ -198,6 +198,9 @@ GRAPH_HTML = """<!DOCTYPE html>
   <div class="toolbar">
     <span class="label">Project</span>
     <button class="filter-btn active" data-project="all">All</button>
+    <span class="label" style="margin-left:18px">As of</span>
+    <input type="range" id="timeline" min="0" max="1000" value="1000" style="width:150px;accent-color:#D9442B">
+    <span id="timeline-label" style="font-size:11px;color:var(--text3);min-width:78px">oggi</span>
   </div>
 
   <div id="graph-container">
@@ -227,6 +230,38 @@ const DECISION_COLOR = '#D4537E';
 const dark = matchMedia('(prefers-color-scheme:dark)').matches;
 
 let allNodes, allLinks, sim, nodeEl, linkEl;
+let currentProject = 'all', timeCutoff = null, dateMin = 0, dateMax = 0;
+
+function linkColor(l) {
+  if (l.rel === 'supersedes')  return '#D9442B';
+  if (l.rel === 'contradicts') return '#E08A00';
+  if (l.kind === 'citation')   return dark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
+  if (l.kind === 'entity')     return dark ? 'rgba(151,196,89,0.4)'  : 'rgba(110,150,60,0.35)';
+  return dark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.09)';   /* semantic: tessuto di fondo */
+}
+function linkDash(l) {
+  if (l.rel === 'contradicts') return '4,3';
+  if (l.kind === 'entity')     return '2,3';
+  return null;
+}
+function linkWidth(l) {
+  return l.rel === 'supersedes' ? 2.4 : Math.max(0.8, Math.min(l.strength * 1.2, 3));
+}
+function nodeVisible(d) {
+  if (currentProject !== 'all' && d.project !== currentProject) return false;
+  if (timeCutoff && d.created_at && new Date(d.created_at).getTime() > timeCutoff) return false;
+  return true;
+}
+function applyFilters() {
+  hideDetail();
+  nodeEl.attr('display', d => nodeVisible(d) ? null : 'none');
+  linkEl.attr('display', l => {
+    const s = typeof l.source==='object' ? l.source : allNodes.find(n=>n.id===l.source);
+    const t = typeof l.target==='object' ? l.target : allNodes.find(n=>n.id===l.target);
+    return (s && t && nodeVisible(s) && nodeVisible(t)) ? null : 'none';
+  });
+  sim.alpha(0.25).restart();
+}
 
 fetch('/api/graph').then(r=>r.json()).then(data => {
   allNodes = data.nodes;
@@ -256,6 +291,21 @@ fetch('/api/graph').then(r=>r.json()).then(data => {
     legend.innerHTML += '<span class="legend-item"><span class="legend-dot" style="background:'+c+'"></span>'+p+'</span>';
   });
   legend.innerHTML += '<span class="legend-item"><span class="legend-diamond" style="background:'+DECISION_COLOR+';opacity:.7"></span>decision</span>';
+  legend.innerHTML += '<span class="legend-item"><span style="display:inline-block;width:16px;height:0;border-top:2.4px solid #D9442B"></span>supersedes</span>';
+  legend.innerHTML += '<span class="legend-item"><span style="display:inline-block;width:16px;height:0;border-top:2px dashed #E08A00"></span>contradicts</span>';
+  legend.innerHTML += '<span class="legend-item"><span style="display:inline-block;width:16px;height:0;border-top:1.5px solid '+(dark?'rgba(255,255,255,0.45)':'rgba(0,0,0,0.35)')+'"></span>citation</span>';
+
+  // Timeline as_of: la dimensione temporale del grafo
+  const dates = allNodes.map(n => n.created_at ? new Date(n.created_at).getTime() : null).filter(Boolean);
+  dateMin = Math.min(...dates); dateMax = Math.max(...dates);
+  const tl = document.getElementById('timeline');
+  tl.addEventListener('input', () => {
+    const f = tl.value / 1000;
+    timeCutoff = f >= 1 ? null : dateMin + (dateMax - dateMin) * f;
+    document.getElementById('timeline-label').textContent =
+      timeCutoff ? new Date(timeCutoff).toISOString().slice(0,10) : 'oggi';
+    applyFilters();
+  });
 
   buildGraph();
 });
@@ -287,8 +337,9 @@ function buildGraph() {
     .force('clusterY', d3.forceY(d => (projPositions[d.project]||{y:H/2}).y).strength(0.12));
 
   linkEl = g.append('g').selectAll('line').data(allLinks).join('line')
-    .attr('stroke', dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)')
-    .attr('stroke-width', d => Math.max(0.8, Math.min(d.strength * 1.2, 3)));
+    .attr('stroke', linkColor)
+    .attr('stroke-dasharray', linkDash)
+    .attr('stroke-width', linkWidth);
 
   nodeEl = g.append('g').selectAll('g').data(allNodes).join('g')
     .style('cursor', 'pointer')
@@ -364,7 +415,15 @@ function showDetail(d) {
   document.getElementById('dp-title').textContent = d.title;
   document.getElementById('dp-project').innerHTML = '<span>' + d.project + '</span>';
   document.getElementById('dp-tags').innerHTML = (d.tags||[]).map(t => '<span class="dp-tag">'+t+'</span>').join('');
-  document.getElementById('dp-content').textContent = d.preview;
+  if (d.type === 'decision') {
+    let s = '';
+    if (d.why) s += 'PERCH\u00c9\\n' + d.why + '\\n\\n';
+    if (d.alternatives) s += 'ALTERNATIVE SCARTATE\\n' + d.alternatives + '\\n\\n';
+    if (d.context) s += 'CONTESTO\\n' + d.context;
+    document.getElementById('dp-content').textContent = s || d.preview;
+  } else {
+    document.getElementById('dp-content').textContent = d.preview;
+  }
   document.getElementById('detail').classList.add('show');
 
   const connected = new Set([d.id]);
@@ -385,7 +444,7 @@ function showDetail(d) {
     .attr('stroke', l => {
       const sid = typeof l.source==='object' ? l.source.id : l.source;
       const tid = typeof l.target==='object' ? l.target.id : l.target;
-      return (sid===d.id || tid===d.id) ? nodeColor : (dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)');
+      return (sid===d.id || tid===d.id) ? nodeColor : linkColor(l);
     })
     .attr('stroke-width', l => {
       const sid = typeof l.source==='object' ? l.source.id : l.source;
@@ -405,23 +464,17 @@ function hideDetail() {
   nodeEl.select('.node-shape').attr('opacity', d => d.type==='decision' ? 0.75 : 0.9).attr('stroke-width', 0.5);
   nodeEl.select('.node-label').style('opacity', 0);
   linkEl
-    .attr('stroke', dark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)')
-    .attr('stroke-width', d => Math.max(0.8, Math.min(d.strength * 1.2, 3)))
+    .attr('stroke', linkColor)
+    .attr('stroke-dasharray', linkDash)
+    .attr('stroke-width', linkWidth)
     .attr('opacity', 1);
 }
 
 function filterProject(proj) {
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-project="${proj}"]`).classList.add('active');
-  hideDetail();
-
-  nodeEl.attr('display', d => (proj==='all' || d.project===proj) ? null : 'none');
-  linkEl.attr('display', l => {
-    const s = typeof l.source==='object' ? l.source : allNodes.find(n=>n.id===l.source);
-    const t = typeof l.target==='object' ? l.target : allNodes.find(n=>n.id===l.target);
-    return (proj==='all' || (s && s.project===proj) || (t && t.project===proj)) ? null : 'none';
-  });
-  sim.alpha(0.3).restart();
+  currentProject = proj;
+  applyFilters();
 }
 </script>
 </body>
@@ -469,7 +522,7 @@ class BrainHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Engram brain graph viewer")
+    parser = argparse.ArgumentParser(description="wadachi brain graph viewer")
     parser.add_argument("--port", type=int, default=8420, help="Port (default: 8420)")
     parser.add_argument("--no-open", action="store_true", help="Don't auto-open browser")
     args = parser.parse_args()
@@ -482,7 +535,7 @@ def main():
 
     print(f"""
 ┌─────────────────────────────────────────┐
-│          ◉  E N G R A M  ◉              │
+│        轍  w a d a c h i  轍            │
 │          Brain graph viewer             │
 ├─────────────────────────────────────────┤
 │  Memories:    {stats['memories']:<4}                     │

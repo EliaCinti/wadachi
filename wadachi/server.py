@@ -1,7 +1,7 @@
 """
 Wadachi MCP Server — persistent memory + semantic search for Claude Code / Desktop.
 
-Tools (30), grouped by area:
+Tools (31), grouped by area:
   Memory:       store_memory, get_memory, list_memories, update_memory, delete_memory, memory_history
   Search/Ctx:   recall, get_context, expand_memory, brain_status
   Decisions:    store_decision, list_decisions
@@ -10,7 +10,7 @@ Tools (30), grouped by area:
   Beliefs:      review_beliefs, set_belief, flag_stale
   Reflection:   reflect, list_insights, accept_insight, reject_insight
   Procedural:   review_procedures
-  Consolidation: consolidate, merge_memories
+  Consolidation: consolidate, merge_memories, sleep
   Provenance/Time: why, as_of
 """
 
@@ -151,6 +151,11 @@ def recall(
     """
     results = search_engine.search(query, project=project, limit=limit)
     results = _annotate_beliefs(results)
+    if project:
+        # evidence scoping: chi legge sa se l'evidenza è del progetto o cross-cutting
+        for r in results:
+            if r.get("type") == "memory":
+                r["scope"] = "global" if r.get("project") == "global" else "project"
     if neighbors and results:
         g = _assoc_graph(project)
         for r in results:
@@ -773,6 +778,80 @@ def as_of(date: str, query: str | None = None, project: str | None = None,
         out.append(entry)
 
     return json.dumps({"as_of": date, "memories": out, "count": len(out)}, indent=2)
+
+
+@tool()
+def sleep(project: str | None = None, min_similarity: float = 0.78) -> str:
+    """The brain's "sleep": walk the graph and PROPOSE housekeeping (read-only).
+
+    Like consolidation during sleep: finds dense communities whose memories are
+    near-duplicates (→ merge candidates), leaves never recalled and fading
+    (→ decay candidates for flag_stale), and disconnected orphans. Nothing is
+    changed — you (or your agent) act with merge_memories / flag_stale.
+
+    Args:
+        project: Scope to a project (None = whole brain).
+        min_similarity: Cosine threshold for merge candidates inside a community.
+    """
+    import numpy as np
+    from wadachi.search import decay_penalty
+
+    g = _assoc_graph(project)
+    meta = {m["id"]: m for m in store.get_memories_for_embedding(project)}
+
+    # 1 · community → candidati alla fusione (solo memorie attive, simili davvero)
+    merge_candidates = []
+    for comm in g.communities():
+        mems = [n for n in comm if n > 0 and g.nodes[n].emb is not None
+                and store.get_belief(n)["status"] == "active"]
+        if len(mems) < 2:
+            continue
+        vecs = np.vstack([g.nodes[n].emb for n in mems])
+        vecs = vecs / (np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9)
+        sims = vecs @ vecs.T
+        group = set()
+        for i in range(len(mems)):
+            for k in range(i + 1, len(mems)):
+                if sims[i, k] >= min_similarity:
+                    group.update((mems[i], mems[k]))
+        if len(group) >= 2:
+            merge_candidates.append({
+                "ids": sorted(group),
+                "titles": [g.nodes[n].title[:70] for n in sorted(group)],
+                "community_size": len(comm),
+            })
+
+    # 2 · foglie in decadimento: mai richiamate, vecchie, senza link ESPLICITI
+    # (il grado conta citation/entity: i kNN semantici sono automatici e
+    #  darebbero grado a tutto, nascondendo le foglie vere)
+    deg: dict[int, int] = {}
+    for e in g.edges:
+        if e.kind == "semantic":
+            continue
+        deg[e.src] = deg.get(e.src, 0) + 1
+        deg[e.dst] = deg.get(e.dst, 0) + 1
+    decay_candidates = []
+    for mid, m in meta.items():
+        if store.get_belief(mid)["status"] != "active":
+            continue
+        pen = decay_penalty(m)
+        if pen >= 0.08 and deg.get(mid, 0) <= 1 and (m.get("access_count") or 0) == 0:
+            decay_candidates.append({"id": mid, "title": m["title"][:70],
+                                     "decay": round(pen, 3), "degree": deg.get(mid, 0)})
+    decay_candidates.sort(key=lambda x: -x["decay"])
+
+    st = g.stats()
+    return json.dumps({
+        "merge_candidates": merge_candidates[:8],
+        "decay_candidates": decay_candidates[:12],
+        "orphans": st["orphans"][:12],
+        "communities": len(g.communities()),
+        "actions": {
+            "merge": "scrivi la sintesi e chiama merge_memories(source_ids, title, content)",
+            "decay": "se davvero superate: flag_stale(id, reason) — restano recuperabili",
+            "orphans": "collegale: aggiungi [[wikilink]] nel contenuto o update_memory",
+        },
+    }, indent=2)
 
 
 # ── Consolidamento (Fase 4.15) ───────────────────────────────

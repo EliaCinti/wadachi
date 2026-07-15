@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [0.9.0] — 2026-07-15
+
+### Added — Fase 7.B (parte 2): sonno, scoping, vetrina (31 tool)
+- **`sleep`** — il "sonno" del brain (read-only): community detection sul grafo
+  (label propagation pesata, puro Python) → gruppi di memorie ridondanti come
+  candidati merge; foglie senza link espliciti, mai richiamate e in decadimento
+  → candidati flag_stale; orfani. Propone, non tocca nulla. Sul brain reale:
+  12 community tematicamente coerenti, il cluster del progetto CEM concluso
+  emerso come candidato naturale al consolidamento.
+- **Evidence scoping**: i risultati di recall portano `project`, e nelle
+  ricerche scoped l'evidenza cross-cutting è dichiarata (`scope: global`) —
+  l'inferenza sa da dove viene ogni prova.
+- **La vetrina** (`python -m wadachi.web`): il grafo D3 non è più un'euristica
+  sui tag — mostra il VERO MemoryGraph: decisioni come rombi, archi tipizzati
+  (supersedes vermiglio, contradicts tratteggiato, citation/semantic/entity),
+  **slider temporale "As of"** (as_of visualizzato), click su una decisione →
+  pannello con perché/alternative scartate/contesto (why visualizzato).
+
+### Fixed
+- I candidati decay del sonno contano solo i link ESPLICITI (citation/entity):
+  i kNN semantici automatici davano grado a tutto, nascondendo le foglie vere.
+
+### Tests
+- 6 test nuovi (117 totali).
+
 ## [0.8.0] — 2026-07-15
 
 ### Added — Fase 7.B roadmap (parte 1): il grafo funzionale (30 tool)

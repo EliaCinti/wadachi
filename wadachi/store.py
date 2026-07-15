@@ -470,7 +470,7 @@ class MemoryStore:
 
     def get_memories_for_embedding(self, project: str | None = None) -> list[dict]:
         """Get memories that need embedding or all memories for search."""
-        query = ("SELECT id, title, tags, category, filepath, embedding, "
+        query = ("SELECT id, title, tags, category, filepath, embedding, project, "
                  "created_at, access_count, last_accessed FROM memories WHERE 1=1")
         params: list = []
         if project:
@@ -495,6 +495,7 @@ class MemoryStore:
                 "category": r["category"],
                 "content": content,
                 "filepath": r["filepath"],
+                "project": r["project"],
                 "has_embedding": r["embedding"] is not None,
                 "embedding": r["embedding"],
                 "created_at": r["created_at"],

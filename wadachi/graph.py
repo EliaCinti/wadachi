@@ -378,6 +378,41 @@ class MemoryGraph:
                                "kind": e.kind, "rel": e.rel, "weight": round(e.weight, 3)}
         return sorted(best.values(), key=lambda x: x["weight"], reverse=True)[:limit]
 
+    def communities(self, min_size: int = 2, max_iter: int = 10) -> list[list[int]]:
+        """Cluster di nodi via label propagation pesata (puro Python, niente networkx).
+
+        Deterministica a parità di grafo: iterazione in ordine stabile di id,
+        tie-break sull'etichetta più piccola. È il cuore del 'sonno': le
+        community dense sono le candidate naturali al consolidamento.
+        """
+        import collections
+        neigh: dict[int, list[tuple[int, float]]] = collections.defaultdict(list)
+        for e in self.edges:
+            neigh[e.src].append((e.dst, e.weight))
+            neigh[e.dst].append((e.src, e.weight))
+
+        labels = {nid: nid for nid in self._order}
+        for _ in range(max_iter):
+            changed = False
+            for nid in self._order:
+                if not neigh[nid]:
+                    continue
+                scores: dict[int, float] = collections.defaultdict(float)
+                for other, w in neigh[nid]:
+                    scores[labels[other]] += w
+                best = min(scores, key=lambda k: (-scores[k], k))
+                if best != labels[nid]:
+                    labels[nid] = best
+                    changed = True
+            if not changed:
+                break
+
+        groups: dict[int, list[int]] = collections.defaultdict(list)
+        for nid, lab in labels.items():
+            groups[lab].append(nid)
+        return sorted((sorted(g) for g in groups.values() if len(g) >= min_size),
+                      key=len, reverse=True)
+
     def stats(self) -> dict:
         cit = [e for e in self.edges if e.kind == "citation"]
         sem = [e for e in self.edges if e.kind == "semantic"]

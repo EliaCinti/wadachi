@@ -179,6 +179,7 @@ class SearchEngine:
                     "title": mem["title"],
                     "category": mem["category"],
                     "tags": mem["tags"],
+                    "project": mem.get("project", "global"),
                     "preview": mem["content"][:300] + ("..." if len(mem["content"]) > 300 else ""),
                     "score": round(score * (1 - penalty), 3),
                 }
@@ -267,6 +268,7 @@ class SearchEngine:
                     "title": mem["title"],
                     "category": mem["category"],
                     "tags": mem["tags"],
+                    "project": mem.get("project", "global"),
                     "preview": mem["content"][:300] + ("..." if len(mem["content"]) > 300 else ""),
                     "score": round(score * (1 - penalty), 3),
                 }

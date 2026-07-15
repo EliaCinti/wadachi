@@ -3,6 +3,19 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [Unreleased]
+
+### Sito (Fase 6 — non impatta il package)
+- **Hero full-screen**: il grafo tipizzato full-bleed è il protagonista (27
+  nodi: memorie, facoltà, decisioni a rombo, arco *supersedes* vermiglio),
+  hover su un nodo → card col dettaglio; repulsione al cursore ricalibrata
+  (morbida). Motore vanilla esteso — niente d3, la CSP resta senza CDN.
+- **Sezione "Why wadachi"**: confronto onesto con Mem0/Zep/Supermemory,
+  colonna wadachi con velo di tinta.
+- **Coerenza Sumi**: un solo accento — via il verde/rosso isolati dei kicker;
+  layout allargato a 1280px.
+- **SEO**: og:image, canonical, JSON-LD SoftwareApplication.
+
 ## [0.9.0] — 2026-07-15
 
 ### Added — Fase 7.B (parte 2): sonno, scoping, vetrina (31 tool)

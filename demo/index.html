@@ -8,8 +8,19 @@
 <meta property="og:title" content="wadachi 轍 — Persistent memory for AI agents">
 <meta property="og:description" content="Your sessions leave tracks. Future sessions follow them.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://wadachi.eliacinti.dev/">
+<meta property="og:image" content="https://wadachi.eliacinti.dev/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://wadachi.eliacinti.dev/">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"wadachi",
+"applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Linux, Windows",
+"description":"Persistent memory MCP server for AI agents. Local-first, LLM Wiki native, Obsidian-compatible.",
+"offers":{"@type":"Offer","price":"0"},"url":"https://wadachi.eliacinti.dev",
+"softwareVersion":"0.9.0","license":"https://opensource.org/license/mit"}
+</script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23101012'/%3E%3Cpath d='M5 11.5C5 10.4 5.9 9.6 7 9.7L21 10.6C23.5 10.8 25.5 11.2 27 11.8C25.5 12.3 23.5 12.5 21 12.5L7 13.2C5.9 13.3 5 12.6 5 11.5Z' fill='%23E8E4DC'/%3E%3Cpath d='M5 19.5C5 18.4 5.9 17.6 7 17.7L19.5 18.6C22 18.8 24 19.2 25.5 19.8C24 20.3 22 20.5 19.5 20.5L7 21.2C5.9 21.3 5 20.6 5 19.5Z' fill='%23E8E4DC'/%3E%3Crect x='23' y='23' width='5' height='5' rx='1.4' fill='%23D9442B'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -44,45 +55,49 @@
   <canvas id="rain" class="rain" aria-hidden="true"></canvas>
   <div id="hero-track" class="hero-track">
     <div class="hero-stage">
-      <div class="hero-grid">
+      <svg id="hero-svg" class="hero-bg" viewBox="0 0 920 680" preserveAspectRatio="xMidYMid slice"
+           role="img" aria-label="Wadachi typed knowledge graph — memories, decisions, supersedes edges"></svg>
+      <div class="hero-veil" aria-hidden="true"></div>
 
-        <div class="hero-left">
-          <div class="pill"><span class="seal">轍</span> wadachi · persistent memory · MCP</div>
-          <h1 id="hero-h1" class="reveal-words"><span class="w">Your</span> <span class="w">sessions</span> <span class="w">leave</span> <span class="w"><span class="hl">tracks</span>.</span></h1>
-          <p class="lede">
-            <em>Wadachi (轍): the tracks wheels leave in a road.</em>
-            Your AI forgets everything between sessions — re-reading files,
-            re-deriving architecture, re-debating solved problems.
-            <strong>Wadachi gives it tracks that stay.</strong>
-          </p>
-          <div class="cta-row">
-            <a class="btn btn-primary" href="https://github.com/EliaCinti/wadachi" target="_blank" rel="noopener">View on GitHub ↗</a>
-            <a class="btn btn-ghost" href="#start">Quick start</a>
-          </div>
-
-          <!-- live recall terminal -->
-          <div class="terminal" aria-hidden="true">
-            <div class="term-head">
-              <span class="td r"></span><span class="td y"></span><span class="td g"></span>
-              <span class="tt">wadachi · recall.log</span>
-            </div>
-            <div class="term-body">
-              <div class="term-line"><span class="prompt">›</span> <span id="term-q"></span><span class="caret"></span></div>
-              <div id="term-results"></div>
-            </div>
-          </div>
+      <div class="hero-fg">
+        <div class="pill"><span class="seal">轍</span> wadachi · persistent memory · MCP</div>
+        <h1 id="hero-h1" class="reveal-words"><span class="w">Your</span> <span class="w">sessions</span> <span class="w">leave</span> <span class="w"><span class="hl">tracks</span>.</span></h1>
+        <p class="lede">
+          <em>Wadachi (轍): the tracks wheels leave in a road.</em>
+          Your AI forgets everything between sessions — re-reading files,
+          re-deriving architecture, re-debating solved problems.
+          <strong>Wadachi gives it tracks that stay.</strong>
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#start">Get started</a>
+          <a class="btn btn-ghost" href="https://github.com/EliaCinti/wadachi" target="_blank" rel="noopener">GitHub ↗</a>
+        </div>
+        <div class="meta-row" aria-label="project links">
+          <a class="meta-pill" href="https://pypi.org/project/wadachi/" target="_blank" rel="noopener"><span class="seal">●</span> PyPI · v0.9.0</a>
+          <a class="meta-pill" href="https://github.com/EliaCinti/wadachi/actions/workflows/ci.yml" target="_blank" rel="noopener">CI · passing</a>
+          <span class="meta-pill">MIT · local-first · no telemetry</span>
         </div>
 
-        <div class="hero-right">
-          <svg id="hero-svg" viewBox="0 0 600 540" role="img" aria-label="Wadachi knowledge graph building"></svg>
-          <div class="build-meta">
-            <div class="bm-count"><span id="node-count">0</span><span class="bm-lbl">nodes indexed</span></div>
-            <div class="bm-bar"><span id="build-progress"></span></div>
-            <div class="bm-hint">live graph · hover to disturb ✦</div>
+        <!-- live recall terminal -->
+        <div class="terminal" aria-hidden="true">
+          <div class="term-head">
+            <span class="td r"></span><span class="td y"></span><span class="td g"></span>
+            <span class="tt">wadachi · recall.log</span>
+          </div>
+          <div class="term-body">
+            <div class="term-line"><span class="prompt">›</span> <span id="term-q"></span><span class="caret"></span></div>
+            <div id="term-results"></div>
           </div>
         </div>
-
       </div>
+
+      <div class="build-meta hero-corner" aria-hidden="true">
+        <div class="bm-count"><span id="node-count">0</span><span class="bm-lbl">nodes indexed</span></div>
+        <div class="bm-bar"><span id="build-progress"></span></div>
+        <div class="bm-hint">live typed graph · hover a node ✦</div>
+      </div>
+
+      <div id="node-tip" class="node-tip" aria-hidden="true"></div>
     </div>
   </div>
 </section>
@@ -224,6 +239,53 @@
   </div>
 </section>
 
+<!-- ── WHY ───────────────────────────────────────────────── -->
+<section class="section" id="why-wadachi">
+  <div class="section-head">
+    <div class="kicker">Why wadachi</div>
+    <h2>Yours. Local. <span class="hl">Honest</span>.</h2>
+    <p class="section-sub">
+      The memory space is crowded and full of good tools. Here is where wadachi
+      actually differs — and where the alternatives are genuinely strong.
+    </p>
+  </div>
+
+  <div class="compare-wrap">
+    <table class="compare">
+      <thead>
+        <tr><th></th><th>wadachi 轍</th><th>Mem0 / Zep</th><th>Supermemory</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Where your memories live</td>
+            <td class="good">Markdown files on your disk — an Obsidian vault, an OKF bundle</td>
+            <td>Their cloud (self-host possible)</td><td>Their cloud</td></tr>
+        <tr><td>Telemetry</td>
+            <td class="good">None. Ever.</td><td>Product analytics</td><td>Product analytics</td></tr>
+        <tr><td>Cost to run</td>
+            <td class="good">$0 — local embeddings, no API calls</td>
+            <td>API-metered</td><td>Subscription</td></tr>
+        <tr><td>Memory model</td>
+            <td class="good">Beliefs that go stale, decisions with provenance (<code>why</code>), time-travel (<code>as_of</code>), sleep consolidation</td>
+            <td>Facts + graph (Zep: temporal graph, excellent)</td>
+            <td>Documents + recall</td></tr>
+        <tr><td>Scale &amp; teams</td>
+            <td>Single-brain, one human — by design</td>
+            <td class="good">Multi-tenant, production-scale</td>
+            <td class="good">Team sharing</td></tr>
+        <tr><td>Managed convenience</td>
+            <td>You run it (one <code>pipx install</code>)</td>
+            <td class="good">Hosted, zero ops</td><td class="good">Hosted, zero ops</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="compare-note">
+    Honest summary: if you need multi-tenant scale or a managed service, use the
+    alternatives — they are good at it. If you want a brain that is <em>yours</em>,
+    readable on disk, free to run, and that reasons about what it believes —
+    that is what wadachi is for.
+  </p>
+</section>
+
 <!-- ── STATS STRIP ───────────────────────────────────────── -->
 <section class="strip">
   <div class="strip-item"><span class="strip-num">31</span><span class="strip-lbl">MCP tools</span></div>
@@ -278,6 +340,6 @@ wadachi init
 </footer>
 
 <!-- sumi-style hero engine — pure vanilla JS, no external libs -->
-<script src="app.js?v=4"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

@@ -21,8 +21,8 @@
   var T0 = performance.now();
   var now = function () { return (performance.now() - T0) / 1000; };
 
-  // ── 1 · curated graph model (hub → ring1 → ring2) ───────────────
-  var W = 600, H = 540, cx = W / 2, cy = H / 2 - 6;
+  // ── 1 · curated graph model (hub → ring1 → ring2 + decisions) ───
+  var W = 920, H = 680, cx = W * 0.60, cy = H / 2;
   var nodes = [], edges = [];
 
   function addNode(o) { o.id = nodes.length; nodes.push(o); return o.id; }
@@ -43,7 +43,7 @@
   ring1Defs.forEach(function (d, i) {
     var a = (i / ring1Defs.length) * Math.PI * 2 - Math.PI / 2;
     var id = addNode({
-      x: cx + Math.cos(a) * 132, y: cy + Math.sin(a) * 132,
+      x: cx + Math.cos(a) * 158, y: cy + Math.sin(a) * 158,
       r: 7.5, color: V, label: d.label, kind: "r1", ang: a,
     });
     ring1.push(id); edges.push({ a: hub, b: id, main: true });
@@ -54,17 +54,19 @@
     "CRDT merge", "Yjs vs Automerge", "WS reconnect", "Redis pub/sub",
     "schema v3", "auth token TTL", "rate-limit 429", "snapshot GC",
     "vector index", "cold-start fix", "Node 18 EOL", "p95 latency",
+    "OKF export", "belief review", "sleep report", "embed cache",
+    "wikilink parse", "index rebuild",
   ];
   var li = 0;
   ring1.forEach(function (pid, k) {
     var p = nodes[pid];
-    var count = 2;
+    var count = 3;
     for (var j = 0; j < count; j++) {
-      var spread = 0.46;
+      var spread = 0.40;
       var a = p.ang + (j - (count - 1) / 2) * spread;
       var cat = ring1Defs[k].cat;
       var id = addNode({
-        x: cx + Math.cos(a) * 232, y: cy + Math.sin(a) * 232,
+        x: cx + Math.cos(a) * 272, y: cy + Math.sin(a) * 272,
         r: 4.6, color: CAT[cat] || V, label: leafLabels[li % leafLabels.length],
         kind: "r2",
       });
@@ -77,11 +79,61 @@
   edges.push({ a: ring1[2], b: ring1[3], cross: true });
   edges.push({ a: ring1[4], b: ring1[5], cross: true });
   edges.push({ a: ring1[1], b: ring1[4], cross: true });
+  edges.push({ a: ring1[0], b: ring1[3], cross: true });
+  edges.push({ a: ring1[2], b: ring1[5], cross: true });
+
+  // typed DECISION nodes (diamonds) — provenance is part of the graph
+  var leafPreviews = [
+    "CRDT merge strategy for the shared doc layer — chosen after the D3 benchmark.",
+    "Yjs vs Automerge: payload 4x smaller, merge 3x faster on our doc sizes.",
+    "WS reconnect with exponential backoff — fixed the mobile drop bug.",
+    "Redis pub/sub fan-out keeps sync under the 80ms budget.",
+    "Schema v3: soft-delete columns everywhere, migrations with backup.",
+    "Auth token TTL bumped to 24h after the refresh-storm incident.",
+    "Rate-limit 429 handling: retry with jitter, max 3 attempts.",
+    "Snapshot GC runs nightly; keeps the last 30 days.",
+    "Vector index rebuilt incrementally — full rebuild only on schema change.",
+    "Cold-start fix: model preloaded at boot, first query 8x faster.",
+    "Node 18 EOL: CI still on it — flagged stale by review_beliefs.",
+    "p95 latency budget is 80ms end-to-end, measured at the gateway.",
+    "The whole brain exports as an OKF bundle — plain markdown, portable.",
+    "review_beliefs flagged 2 memories past their valid-until date.",
+    "Last sleep run proposed merging 3 near-duplicate deploy notes.",
+    "Embeddings cached in SQLite — recomputed only when content changes.",
+    "[[wikilinks]] resolve to graph edges; the vault opens in Obsidian.",
+    "index.md regenerated on every store — the wiki catalog stays fresh.",
+  ];
+  nodes.forEach(function (n, i) {
+    if (n.kind === "r2") n.preview = leafPreviews[(i + leafPreviews.length) % leafPreviews.length];
+    if (n.kind === "hub") n.preview = "One call loads project, memories, decisions and what needs review.";
+    if (n.kind === "r1") n.preview = "Cognitive faculty — click-through in the real brain.";
+  });
+
+  var decDefs = [
+    { label: "D3 · Yjs over Automerge", near: 1,
+      preview: "WHY: smaller payload, faster merge. REJECTED: Automerge (memory footprint). Ask why() and the graph answers." },
+    { label: "D7 · SQLite, not Postgres", near: 5,
+      preview: "WHY: local-first, zero-config, one file. REJECTED: Postgres (overkill at this scale)." },
+  ];
+  var decIds = [];
+  decDefs.forEach(function (d, i) {
+    var pnode = nodes[ring1[d.near]];
+    var a = pnode.ang + (i === 0 ? -0.62 : 0.62);
+    var id = addNode({
+      x: cx + Math.cos(a) * 252, y: cy + Math.sin(a) * 252,
+      r: 6.2, color: CAT.decision, label: d.label, kind: "dec",
+      preview: d.preview,
+    });
+    decIds.push(id);
+    edges.push({ a: ring1[d.near], b: id });
+  });
+  // supersedes: la decisione D3 supera una vecchia memoria (arco vermiglio)
+  edges.push({ a: decIds[0], b: ring1[0] + 1, rel: "supersedes" });
 
   // reveal order: hub, then ring1, then ring2
   var nodeOrder = nodes.map(function (n) { return n.id; });
   nodeOrder.sort(function (a, b) {
-    var rank = { hub: 0, r1: 1, r2: 2 };
+    var rank = { hub: 0, r1: 1, r2: 2, dec: 2 };
     return rank[nodes[a].kind] - rank[nodes[b].kind];
   });
 
@@ -102,8 +154,9 @@
   // edges — plain lines, opacity-revealed, endpoints follow displaced nodes
   edges.forEach(function (e) {
     var ln = mk("line");
-    ln.setAttribute("stroke", e.cross ? "rgba(217,68,43,0.45)" : "rgba(232,228,220,0.45)");
-    ln.setAttribute("stroke-width", e.main ? 1.4 : 0.9);
+    ln.setAttribute("stroke", e.rel === "supersedes" ? "rgba(217,68,43,0.85)"
+                    : e.cross ? "rgba(217,68,43,0.45)" : "rgba(232,228,220,0.45)");
+    ln.setAttribute("stroke-width", e.rel === "supersedes" ? 1.8 : e.main ? 1.4 : 0.9);
     ln.setAttribute("stroke-linecap", "round");
     ln.setAttribute("opacity", "0");
     e.el = ln; e.vis = 0;
@@ -111,7 +164,7 @@
     // one travelling particle per edge
     var pt = mk("circle");
     pt.setAttribute("r", e.main ? 2.2 : 1.6);
-    pt.setAttribute("fill", e.cross ? C : V);
+    pt.setAttribute("fill", (e.cross || e.rel === "supersedes") ? C : V);
     pt.setAttribute("opacity", "0");
     e.particle = pt; e.pPhase = Math.random();
     gParticles.appendChild(pt);
@@ -136,12 +189,25 @@
     var core = mk("circle");
     core.setAttribute("r", n.r); core.setAttribute("fill", n.color);
     g.appendChild(core);
-    // ring + label for hub/r1
+    // decisioni: rombo al posto del cerchio
+    if (n.kind === "dec") {
+      core.setAttribute("transform", "rotate(45)");
+      core.remove();
+      var rect = mk("rect");
+      rect.setAttribute("x", -n.r); rect.setAttribute("y", -n.r);
+      rect.setAttribute("width", n.r * 2); rect.setAttribute("height", n.r * 2);
+      rect.setAttribute("rx", 1.5); rect.setAttribute("transform", "rotate(45)");
+      rect.setAttribute("fill", n.color);
+      g.insertBefore(rect, halo.nextSibling);
+    }
+    // ring + label for hub/r1/dec
     if (n.kind !== "r2") {
-      var rg = mk("circle");
-      rg.setAttribute("r", n.r + 3); rg.setAttribute("fill", "none");
-      rg.setAttribute("stroke", n.color); rg.setAttribute("stroke-width", "1"); rg.setAttribute("opacity", "0.5");
-      g.appendChild(rg);
+      if (n.kind !== "dec") {
+        var rg = mk("circle");
+        rg.setAttribute("r", n.r + 3); rg.setAttribute("fill", "none");
+        rg.setAttribute("stroke", n.color); rg.setAttribute("stroke-width", "1"); rg.setAttribute("opacity", "0.5");
+        g.appendChild(rg);
+      }
       var tx = mk("text");
       tx.textContent = n.label;
       tx.setAttribute("x", 0); tx.setAttribute("y", n.r + 15);
@@ -181,11 +247,36 @@
     var r = svg.getBoundingClientRect();
     return { x: (clientX - r.left) / r.width * W, y: (clientY - r.top) / r.height * H };
   }
+  var tip = document.getElementById("node-tip");
+  function updateTip(ev) {
+    if (!tip) return;
+    var best = null, bd = 30;
+    nodes.forEach(function (n) {
+      if (n.vis < 0.8) return;
+      var dx = (n.x + n.ox) - cur.x, dy = (n.y + n.oy) - cur.y;
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bd) { bd = d; best = n; }
+    });
+    if (best && best.preview) {
+      tip.innerHTML = '<div class="tip-kind">' + (best.kind === "dec" ? "decision" : best.kind === "hub" ? "tool" : "memory") + '</div>' +
+                      '<div class="tip-title">' + best.label + '</div>' +
+                      '<div class="tip-body">' + best.preview + '</div>';
+      tip.style.left = Math.min(ev.clientX + 16, innerWidth - 300) + "px";
+      tip.style.top = (ev.clientY + 14) + "px";
+      tip.classList.add("show");
+    } else {
+      tip.classList.remove("show");
+    }
+  }
   if (!reduce) {
     svg.addEventListener("pointermove", function (ev) {
       var c = toSvg(ev.clientX, ev.clientY); cur.x = c.x; cur.y = c.y; cur.on = true;
+      updateTip(ev);
     }, { passive: true });
-    svg.addEventListener("pointerleave", function () { cur.on = false; });
+    svg.addEventListener("pointerleave", function () {
+      cur.on = false;
+      if (tip) tip.classList.remove("show");
+    });
   }
   var pxTgt = 0, pyTgt = 0, pxCur = 0, pyCur = 0;
   if (!reduce) addEventListener("pointermove", function (ev) {
@@ -193,7 +284,7 @@
     pyTgt = (ev.clientY / window.innerHeight - 0.5) * 2;
   }, { passive: true });
 
-  var REP_R = 90, REP_PUSH = 1.9, SPRING = 0.09, DAMP = 0.86;
+  var REP_R = 58, REP_PUSH = 0.7, SPRING = 0.11, DAMP = 0.84;
 
   function frame() {
     var t = now();

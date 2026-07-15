@@ -3,6 +3,31 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [0.8.0] — 2026-07-15
+
+### Added — Fase 7.B roadmap (parte 1): il grafo funzionale (30 tool)
+- **Nodi tipizzati**: le decisioni entrano nel grafo come nodi veri (esagoni nel
+  Mermaid). "decisione #19" in prosa e `[[D19]]` diventano archi; il razionale
+  di una decisione che cita "memoria #82" crea l'arco inverso. Le supersession
+  dei belief (`superseded_by`) diventano archi tipizzati **supersedes** — le
+  contraddizioni nel tempo sono struttura, non rumore.
+- **Graph-aware recall**: `recall(neighbors=True)` allega a ogni risultato i
+  vicini più forti a 1 hop con la relazione tipizzata — ciò che è CONNESSO
+  emerge anche quando non è testualmente simile.
+- **`why(question)`** — la provenienza interrogabile: "perché usiamo X e non Y?"
+  → decisione, razionale, alternative scartate, contesto, e le memorie che la
+  citano nel grafo come evidenza.
+- **`as_of(date, query)`** — time-travel: cosa credeva il brain a una certa
+  data, con il contenuto ricostruito dalla cronologia non-distruttiva delle
+  versioni e le memorie già superate/scadute annotate.
+
+### Rimandati alla parte 2
+Consolidamento "sonno" (Louvain), evidence scoping formale, vetrina web del
+grafo tipizzato (si incastra con la Fase 6 — sito).
+
+### Tests
+- 12 test nuovi (111 totali).
+
 ## [0.7.0] — 2026-07-14
 
 ### Added — Fase 7.A roadmap: LLM Wiki + OKF (il posizionamento)

@@ -1,7 +1,7 @@
 """
 Wadachi MCP Server — persistent memory + semantic search for Claude Code / Desktop.
 
-Tools (28), grouped by area:
+Tools (30), grouped by area:
   Memory:       store_memory, get_memory, list_memories, update_memory, delete_memory, memory_history
   Search/Ctx:   recall, get_context, expand_memory, brain_status
   Decisions:    store_decision, list_decisions
@@ -11,6 +11,7 @@ Tools (28), grouped by area:
   Reflection:   reflect, list_insights, accept_insight, reject_insight
   Procedural:   review_procedures
   Consolidation: consolidate, merge_memories
+  Provenance/Time: why, as_of
 """
 
 import functools
@@ -137,6 +138,7 @@ def recall(
     query: str,
     project: str | None = None,
     limit: int = 5,
+    neighbors: bool = False,
 ) -> str:
     """Search the Brain semantically. Use this to find relevant memories before starting work.
 
@@ -144,9 +146,19 @@ def recall(
         query: Natural language query describing what you're looking for.
         project: Scope search to a specific project (None = search all).
         limit: Maximum number of results to return.
+        neighbors: Attach each result's strongest graph neighbours (1 hop, typed) —
+            graph-aware recall: what's CONNECTED surfaces even if not textually similar.
     """
     results = search_engine.search(query, project=project, limit=limit)
     results = _annotate_beliefs(results)
+    if neighbors and results:
+        g = _assoc_graph(project)
+        for r in results:
+            if r.get("type") == "memory" and r["id"] in g.nodes:
+                linked = g.related(r["id"], limit=3)
+                if linked:
+                    r["linked"] = [{"label": x["label"], "rel": x["rel"],
+                                    "title": x["title"][:70]} for x in linked]
     if not results:
         mode = "semantic" if search_engine.semantic_available else "keyword"
         return json.dumps({
@@ -664,6 +676,103 @@ def reject_insight(insight_id: int) -> str:
     """
     ok = store.set_insight_status(insight_id, "rejected")
     return json.dumps({"status": "rejected" if ok else "not_found", "insight_id": insight_id})
+
+
+# ── Provenienza e tempo (Fase 7.B) ───────────────────────────
+
+
+@tool()
+def why(question: str, project: str | None = None, limit: int = 2) -> str:
+    """Interrogate decision provenance: WHY are things the way they are?
+
+    Ask "why do we use X and not Y?" — returns the matching decision(s) with
+    rationale, the rejected alternatives, the context, plus the memories that
+    cite each decision (its evidence in the graph) and what supersedes what.
+
+    Args:
+        question: The "why" question, natural language.
+        project: Scope to a project (None = whole brain).
+        limit: Max decisions to explain.
+    """
+    hits = [r for r in search_engine.search(question, project=project,
+                                            limit=limit * 4, include_decisions=True)
+            if r.get("type") == "decision"][:limit]
+    if not hits:
+        return json.dumps({"answers": [], "message":
+                           "Nessuna decisione registrata corrisponde. Prova recall(), "
+                           "o registra la scelta con store_decision la prossima volta."})
+
+    g = _assoc_graph(project)
+    answers = []
+    for h in hits:
+        d = store.get_decision(h["id"])
+        nid = -h["id"]
+        evidence = [{"label": g.nodes[e.src].label, "rel": e.rel,
+                     "title": g.nodes[e.src].title[:80]}
+                    for e in g.edges
+                    if e.dst == nid and e.kind == "citation" and e.src in g.nodes]
+        answers.append({
+            "decision_id": d["id"],
+            "decided": d["decision"],
+            "why": d["rationale"],
+            "rejected_alternatives": d["alternatives"],
+            "context": d["context"],
+            "when": d["created_at"],
+            "project": d["project"],
+            "cited_by": evidence,
+            "score": h["score"],
+        })
+    return json.dumps({"question": question, "answers": answers}, indent=2)
+
+
+@tool()
+def as_of(date: str, query: str | None = None, project: str | None = None,
+          limit: int = 15) -> str:
+    """Time-travel: what did the brain believe at a given date?
+
+    Memories that existed then, with their content AS IT WAS (reconstructed from
+    the non-destructive version history), and which of them were already
+    superseded or expired at that date.
+
+    Args:
+        date: ISO date ("2026-03-01") — the point in time to reconstruct.
+        query: Optional filter — only memories relevant to this (searched today,
+            content returned as of the date).
+        project: Scope to a project.
+        limit: Max memories.
+    """
+    if len(date) == 10:
+        date = date + "T23:59:59+00:00"        # fine giornata, comodo per date pure
+
+    candidates = store.list_memories(project=project)
+    existed = [m for m in candidates if m["created_at"] <= date]
+
+    if query:
+        found = search_engine.search(query, project=project, limit=limit * 3)
+        keep = {r["id"] for r in found if r.get("type") == "memory"}
+        existed = [m for m in existed if m["id"] in keep]
+
+    supers = dict(store.list_supersessions())   # old_id -> new_id
+    created = {m["id"]: m["created_at"] for m in candidates}
+
+    out = []
+    for m in existed[:limit]:
+        b = store.get_belief(m["id"])
+        status = "active"
+        new_id = supers.get(m["id"])
+        if new_id and created.get(new_id, "9999") <= date:
+            status = f"already superseded by #{new_id}"
+        elif b["valid_until"] and b["valid_until"] < date:
+            status = "expired"
+        entry = {"id": m["id"], "title": m["title"], "created_at": m["created_at"],
+                 "status_at_date": status}
+        if query:                               # col filtro: anche il contenuto d'epoca
+            content = store.get_content_as_of(m["id"], date)
+            if content:
+                entry["content_as_of"] = content[:1500]
+        out.append(entry)
+
+    return json.dumps({"as_of": date, "memories": out, "count": len(out)}, indent=2)
 
 
 # ── Consolidamento (Fase 4.15) ───────────────────────────────

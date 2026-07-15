@@ -40,11 +40,14 @@ from wadachi.search import embed_text, embed_texts, cosine_similarity
 _MEM_REF = re.compile(r"(?i)\bmemor(?:i[ae]|y|ies)\b[^\w#]{0,12}#?\s*(\d{1,4})")
 # [[#84]] — riferimento diretto per id (usato da merge_memories/accept_insight)
 _ID_REF = re.compile(r"\[\[#(\d{1,5})\]\]")
+# "decisione #19" / "decision #4" in prosa, e [[D19]] — le decisioni sono nodi
+_DEC_REF = re.compile(r"(?i)\bdecisi(?:one?|ons?)\b[^\w#]{0,12}#?\s*(\d{1,4})")
+_DID_REF = re.compile(r"\[\[D(\d{1,5})\]\]")
 # [[slug-del-file]] o [[slug|testo mostrato]] — wikilink in stile Obsidian,
 # risolto sullo stem del file della memoria (il vault è apribile in Obsidian)
 _WIKI_REF = re.compile(r"\[\[([^\]#|][^\]|]{0,120}?)(?:\|[^\]]*)?\]\]")
 
-_EDGE_WEIGHT = {"updates": 1.5, "contradicts": 1.2, "cites": 1.0, "relates": 0.8}
+_EDGE_WEIGHT = {"supersedes": 1.5, "updates": 1.5, "contradicts": 1.2, "cites": 1.0, "relates": 0.8}
 
 _UPDATE_KW = ("aggiorn", "update", "supersed", "sostitu", "rivede", "supera",
               "deprecat", "risolt", "rivalut")
@@ -65,13 +68,18 @@ def _edge_type(window: str) -> str:
 
 @dataclass
 class Node:
-    id: int
+    id: int                           # memoria: id positivo · decisione: -id (namespace)
     title: str
     category: str
     tags: list[str]
     content: str
     emb: np.ndarray | None = None
     stem: str = ""                    # nome file senza .md → target dei [[wikilink]]
+    ntype: str = "memory"             # memory | decision
+
+    @property
+    def label(self) -> str:
+        return f"D{-self.id}" if self.ntype == "decision" else f"#{self.id}"
 
 
 @dataclass
@@ -113,6 +121,21 @@ class MemoryGraph:
                 missing_text.append(
                     f"{r['title']}. Tags: {', '.join(r['tags'])}. {r['content'][:1000]}"
                 )
+        # 7.B: le decisioni sono nodi tipizzati (id negativi = namespace separato)
+        for d in self.store.get_decisions_for_embedding(project):
+            emb = None
+            if d["embedding"] is not None:
+                emb = np.frombuffer(d["embedding"], dtype=np.float32)
+            nid = -d["id"]
+            self.nodes[nid] = Node(
+                nid, d["decision"][:120], "decision", [],
+                f"{d['decision']}\n{d['rationale']}\n{d['context']}",
+                emb, ntype="decision",
+            )
+            if emb is None:
+                missing_ids.append(nid)
+                missing_text.append(f"{d['decision']}. {d['rationale'][:600]}")
+
         if missing_text:
             embs = embed_texts(missing_text)
             if embs:
@@ -123,6 +146,7 @@ class MemoryGraph:
         self._idx = {mid: i for i, mid in enumerate(self._order)}
 
         self._build_citation_edges()
+        self._build_supersession_edges()
         self._build_semantic_edges()
         self._build_matrix()
         return self
@@ -149,11 +173,27 @@ class MemoryGraph:
             # [[#82]] (provenienza di merge/insight)
             for m in _ID_REF.finditer(node.content):
                 add(src, int(m.group(1)), m.start(), node.content)
+            # "decisione #19" e [[D19]] → nodi decisione (id negativi)
+            for m in _DEC_REF.finditer(node.content):
+                add(src, -int(m.group(1)), m.start(), node.content)
+            for m in _DID_REF.finditer(node.content):
+                add(src, -int(m.group(1)), m.start(), node.content)
             # [[slug]] Obsidian → risolto per stem del file
             for m in _WIKI_REF.finditer(node.content):
                 dst = by_stem.get(m.group(1).strip().lower())
                 if dst is not None:
                     add(src, dst, m.start(), node.content)
+
+    def _build_supersession_edges(self) -> None:
+        """Belief `superseded_by` → arco tipizzato: la memoria nuova SUPERA la vecchia.
+
+        È la 'contraddizione nel tempo' della roadmap: non rumore, ma struttura.
+        """
+        ids = set(self.nodes)
+        for old_id, new_id in self.store.list_supersessions():
+            if old_id in ids and new_id in ids and old_id != new_id:
+                self.edges.append(Edge(new_id, old_id, "citation", "supersedes",
+                                       _EDGE_WEIGHT["supersedes"]))
 
     def _build_semantic_edges(self) -> None:
         ids = [mid for mid in self._order if self.nodes[mid].emb is not None]
@@ -286,20 +326,23 @@ class MemoryGraph:
         results = []
         for i in ranked[:limit]:
             mid = order[i]
+            n = self.nodes[mid]
             results.append({
-                "id": mid,
-                "title": self.nodes[mid].title,
+                "id": abs(mid),
+                "type": n.ntype,
+                "label": n.label,
+                "title": n.title,
                 "final": round(float(final[i]), 3),
                 "direct_sim": round(float(qsim[i]), 3),
                 "graph_score": round(float(gn[i]), 3),
-                "via": self._activators(mid, seed_idx),
+                "via": [self.nodes[a].label for a in self._activators(mid, seed_idx)],
                 "new_vs_cosine": mid not in baseline_ids,
             })
         return {
             "query": query,
             "associative": results,
-            "baseline_cosine": baseline_ids,
-            "seeds": [order[i] for i in seed_idx],
+            "baseline_cosine": [self.nodes[b].label for b in baseline_ids],
+            "seeds": [self.nodes[order[i]].label for i in seed_idx],
         }
 
     def _activators(self, mid: int, seed_idx: np.ndarray) -> list[int]:
@@ -329,7 +372,9 @@ class MemoryGraph:
                 continue
             cur = best.get(other)
             if cur is None or e.weight > cur["weight"]:
-                best[other] = {"id": other, "title": self.nodes[other].title,
+                n = self.nodes[other]
+                best[other] = {"id": abs(other), "type": n.ntype, "label": n.label,
+                               "title": n.title,
                                "kind": e.kind, "rel": e.rel, "weight": round(e.weight, 3)}
         return sorted(best.values(), key=lambda x: x["weight"], reverse=True)[:limit]
 
@@ -345,14 +390,17 @@ class MemoryGraph:
         for e in cit:
             rel_counts[e.rel] = rel_counts.get(e.rel, 0) + 1
         hubs = sorted(deg.items(), key=lambda kv: kv[1], reverse=True)[:5]
-        orphans = [mid for mid, d in deg.items() if d == 0]
+        orphans = [self.nodes[mid].label for mid, d in deg.items() if d == 0]
         return {
             "nodes": len(self.nodes),
+            "memory_nodes": sum(1 for n in self.nodes.values() if n.ntype == "memory"),
+            "decision_nodes": sum(1 for n in self.nodes.values() if n.ntype == "decision"),
             "citation_edges": len(cit),
             "citation_by_rel": rel_counts,
             "semantic_edges": len(sem),
             "entity_edges": len(ent),
-            "hubs": [{"id": mid, "degree": d, "title": self.nodes[mid].title} for mid, d in hubs],
+            "hubs": [{"label": self.nodes[mid].label, "degree": d,
+                      "title": self.nodes[mid].title} for mid, d in hubs],
             "orphans": orphans,
         }
 
@@ -363,13 +411,20 @@ class MemoryGraph:
             keep = {focus} | {e.dst for e in cit if e.src == focus} | {e.src for e in cit if e.dst == focus}
             cit = [e for e in cit if e.src in keep and e.dst in keep]
         shown, lines = set(), ["graph LR"]
-        arrow = {"updates": "-->|updates|", "contradicts": "-.->|contradicts|",
-                 "cites": "-->|cites|", "relates": "-->"}
+        arrow = {"supersedes": "==>|supersedes|", "updates": "-->|updates|",
+                 "contradicts": "-.->|contradicts|", "cites": "-->|cites|", "relates": "-->"}
+
+        def mmid(nid: int) -> str:                 # id mermaid-safe (niente '-')
+            return f"d{-nid}" if nid < 0 else f"m{nid}"
+
         for e in cit[:max_nodes * 2]:
             for mid in (e.src, e.dst):
                 if mid not in shown:
-                    label = self.nodes[mid].title[:34].replace('"', "'")
-                    lines.append(f'  m{mid}["#{mid} {label}"]')
+                    n = self.nodes[mid]
+                    label = n.title[:34].replace('"', "'")
+                    shape = f'{mmid(mid)}{{{{"{n.label} {label}"}}}}' if n.ntype == "decision" \
+                        else f'{mmid(mid)}["{n.label} {label}"]'
+                    lines.append(f"  {shape}")
                     shown.add(mid)
-            lines.append(f"  m{e.src} {arrow.get(e.rel, '-->')} m{e.dst}")
+            lines.append(f"  {mmid(e.src)} {arrow.get(e.rel, '-->')} {mmid(e.dst)}")
         return "\n".join(lines)

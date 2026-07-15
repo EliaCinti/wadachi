@@ -395,6 +395,40 @@ class MemoryStore:
             for r in rows
         ]
 
+    def get_decision(self, decision_id: int) -> dict | None:
+        with self._conn() as conn:
+            r = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
+        if not r:
+            return None
+        return {
+            "id": r["id"], "decision": r["decision"], "rationale": r["rationale"],
+            "alternatives": r["alternatives"], "context": r["context"],
+            "project": r["project"], "created_at": r["created_at"],
+        }
+
+    def get_content_as_of(self, memory_id: int, date: str) -> str | None:
+        """Il contenuto della memoria com'era a `date` (ISO), ricostruito dalle versioni.
+
+        La versione più vecchia rimpiazzata DOPO la data era quella viva alla data;
+        se nessuna versione è stata rimpiazzata dopo, vale il contenuto corrente.
+        Ritorna None se la memoria non esisteva ancora.
+        """
+        with self._conn() as conn:
+            row = conn.execute("SELECT created_at FROM memories WHERE id = ?",
+                               (memory_id,)).fetchone()
+            if not row or row["created_at"] > date:
+                return None
+            v = conn.execute(
+                "SELECT content FROM memory_versions WHERE memory_id = ? AND replaced_at > ? "
+                "ORDER BY replaced_at ASC LIMIT 1",
+                (memory_id, date),
+            ).fetchone()
+        if v is not None:
+            from wadachi.mdio import parse_memory_file
+            return parse_memory_file(v["content"]).content
+        current = self.get_memory(memory_id)
+        return current["content"] if current else None
+
     # ── Projects ──────────────────────────────────────────────
 
     def register_project(self, name: str, description: str = "", paths: list[str] | None = None) -> dict:
@@ -495,6 +529,14 @@ class MemoryStore:
     def save_embedding(self, table: str, row_id: int, embedding_bytes: bytes):
         with self._conn() as conn:
             conn.execute(f"UPDATE {table} SET embedding = ? WHERE id = ?", (embedding_bytes, row_id))
+
+    def list_supersessions(self) -> list[tuple[int, int]]:
+        """Coppie (vecchia, nuova) dai belief: chi ha superato chi."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT memory_id, superseded_by FROM beliefs WHERE superseded_by IS NOT NULL"
+            ).fetchall()
+        return [(r["memory_id"], r["superseded_by"]) for r in rows]
 
     def touch_access(self, memory_ids: list[int]) -> None:
         """Registra un accesso esplicito (get_memory/expand_memory) — alimenta il decay."""

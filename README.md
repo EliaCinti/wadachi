@@ -81,7 +81,7 @@ graph TB
         CU[Cursor]
     end
 
-    subgraph Server ["Wadachi MCP Server — FastMCP · 28 tools"]
+    subgraph Server ["Wadachi MCP Server — FastMCP · 30 tools"]
         S[server.py<br><i>tool surface</i>]
         ST[store.py<br><i>SQLite + markdown, versioned</i>]
         SE[search.py<br><i>semantic + keyword</i>]
@@ -214,7 +214,7 @@ From now on, every session can start with `get_context` and your AI already know
 
 ## Tools
 
-Wadachi exposes **28 MCP tools**, grouped by area.
+Wadachi exposes **30 MCP tools**, grouped by area.
 
 **Memory**
 
@@ -288,6 +288,13 @@ Wadachi exposes **28 MCP tools**, grouped by area.
 |:-----|:-------------|
 | `consolidate` | Propose groups of redundant memories to merge (read-only, you review). |
 | `merge_memories` | Store your synthesis as a new memory; sources marked superseded, never deleted. |
+
+**Provenance & Time**
+
+| Tool | What it does |
+|:-----|:-------------|
+| `why` | Ask "why do we use X and not Y?" — decision, rationale, rejected alternatives, and the memories that cite it. |
+| `as_of` | Time-travel: what the brain believed at a date, with content reconstructed from version history. |
 
 ### Memory Categories
 

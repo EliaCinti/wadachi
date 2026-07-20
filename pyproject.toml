@@ -1,6 +1,6 @@
 [project]
 name = "wadachi"
-version = "0.13.0"
+version = "0.14.0"
 description = "Wadachi (轍) — persistent memory + semantic search MCP server for AI agents. Formerly Engram."
 authors = [{ name = "Elia Cinti", email = "cintielia21@gmail.com" }]
 classifiers = [

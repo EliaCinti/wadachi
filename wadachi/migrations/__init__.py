@@ -78,6 +78,15 @@ def _backup(db_path: Path, current: int) -> Path:
     backups.mkdir(exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     dest = backups / f"{db_path.name}.bak.{ts}.v{current}"
+    # Fold any WAL into the main file first so this pre-migration safety copy
+    # is complete (a WAL-mode brain keeps recent writes in brain.db-wal). We're
+    # about to migrate this DB anyway, so checkpointing it is not a mutation we
+    # need to avoid. Best-effort: a busy/again checkpoint must not block backup.
+    try:
+        with sqlite3.connect(str(db_path)) as _c:
+            _c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.Error:
+        pass
     shutil.copy2(db_path, dest)
     return dest
 

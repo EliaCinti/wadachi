@@ -172,3 +172,66 @@ def test_stats_counts(store):
     s = store.stats()
     assert s["memories"] == 1
     assert s["decisions"] == 1
+
+
+# ── Concorrenza: accesso multi-client (Overmind: più agenti in parallelo) ──
+
+
+def test_concurrent_writes_all_succeed(store):
+    """N thread che scrivono insieme non devono perdere scritture né fallire
+    con 'database is locked' — WAL + busy_timeout serializzano al livello di
+    SQLite invece di far esplodere il secondo writer."""
+    import threading
+
+    n = 24
+    errors: list[Exception] = []
+    barrier = threading.Barrier(n)
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait()  # massimizza la sovrapposizione
+            store.store_memory(f"contenuto {i}", f"Memoria concorrente {i}")
+        except Exception as e:  # noqa: BLE001 — vogliamo raccoglierli tutti
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"scritture concorrenti fallite: {errors}"
+    assert store.stats()["memories"] == n
+
+
+def test_concurrent_same_title_no_overwrite(store):
+    """Stesso titolo da più thread: creazione file O_EXCL → file distinti,
+    nessuna scrittura sovrascrive un'altra."""
+    import threading
+
+    n = 10
+    barrier = threading.Barrier(n)
+
+    def worker() -> None:
+        barrier.wait()
+        store.store_memory("corpo", "Titolo identico")
+
+    threads = [threading.Thread(target=worker) for _ in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert store.stats()["memories"] == n
+    # Ogni memoria ha un file distinto ed esistente su disco.
+    paths = {m["filepath"] for m in store.list_memories()}
+    assert len(paths) == n
+    for m in store.list_memories():
+        assert (store.brain_dir / m["filepath"]).exists()
+
+
+def test_wal_mode_enabled(store):
+    """Il DB del brain gira in WAL (concorrenza lettori/scrittore)."""
+    with store._conn() as conn:
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"

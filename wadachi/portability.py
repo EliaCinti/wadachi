@@ -48,6 +48,32 @@ def _read_only_stats(db: Path) -> dict:
     return stats
 
 
+def _clear_db_sidecars(brain: Path) -> None:
+    """Remove SQLite WAL sidecars so a restored brain.db can't inherit a stale
+    -wal/-shm from whatever brain was there before."""
+    for suffix in ("-wal", "-shm"):
+        side = brain / f"brain.db{suffix}"
+        if side.exists():
+            side.unlink()
+
+
+def _snapshot_db(src: Path, dst: Path) -> bool:
+    """Write a complete, standalone copy of the SQLite DB to `dst`, reading
+    through the WAL so recent writes are included — **without modifying the
+    source** (export must stay strictly read-only). Returns True on success."""
+    if not src.exists():
+        return False
+    import sqlite3
+    try:
+        # VACUUM INTO produces a fresh, self-contained DB file that reflects
+        # all committed data (WAL included) and touches only `dst`.
+        with sqlite3.connect(str(src)) as conn:
+            conn.execute("VACUUM INTO ?", (str(dst),))
+        return True
+    except sqlite3.Error:
+        return False
+
+
 def export_brain(brain_dir: str | Path, out: str | Path | None = None) -> dict:
     """Esporta il brain in un tar.gz portabile. Ritorna {archive, manifest}."""
     brain = Path(brain_dir).expanduser()
@@ -75,16 +101,28 @@ def export_brain(brain_dir: str | Path, out: str | Path | None = None) -> dict:
         "restore": "wadachi restore <archivio> --to <nuova-dir>",
     }
 
-    with tarfile.open(archive, "w:gz") as tar:
-        for name in present:
-            tar.add(brain / name, arcname=name)
-        # manifest come file virtuale in radice
-        import io
-        data = json.dumps(manifest, indent=2).encode("utf-8")
-        info = tarfile.TarInfo("MANIFEST.json")
-        info.size = len(data)
-        info.mtime = int(datetime.now(timezone.utc).timestamp())
-        tar.addfile(info, io.BytesIO(data))
+    # Snapshot brain.db to a temp file (WAL folded in, source untouched) and
+    # archive that instead of the raw file, so a WAL-mode brain exports a
+    # complete DB while export stays strictly read-only.
+    import tempfile
+    snapshot: Path | None = None
+    with tempfile.TemporaryDirectory() as tmp:
+        if "brain.db" in present:
+            candidate = Path(tmp) / "brain.db"
+            if _snapshot_db(brain / "brain.db", candidate):
+                snapshot = candidate
+
+        with tarfile.open(archive, "w:gz") as tar:
+            for name in present:
+                source = snapshot if (name == "brain.db" and snapshot) else brain / name
+                tar.add(source, arcname=name)
+            # manifest come file virtuale in radice
+            import io
+            data = json.dumps(manifest, indent=2).encode("utf-8")
+            info = tarfile.TarInfo("MANIFEST.json")
+            info.size = len(data)
+            info.mtime = int(datetime.now(timezone.utc).timestamp())
+            tar.addfile(info, io.BytesIO(data))
 
     return {"archive": str(archive), "manifest": manifest}
 
@@ -117,6 +155,10 @@ def restore_in_place(archive: str | Path, brain_dir: str | Path) -> dict:
             shutil.rmtree(target)
         elif target.exists():
             target.unlink()
+    # Also clear the WAL sidecars: leaving a stale brain.db-wal/-shm next to a
+    # freshly restored brain.db makes SQLite re-apply the *old* WAL to the new
+    # database. They are not in _INCLUDE (never archived), so remove explicitly.
+    _clear_db_sidecars(brain)
 
     with tarfile.open(archive, "r:gz") as tar:
         for m in tar.getmembers():
@@ -144,6 +186,7 @@ def restore_brain(archive: str | Path, to: str | Path, force: bool = False) -> d
             f"{dest} esiste e non è vuota — scegli una cartella nuova o usa --force")
     dest.mkdir(parents=True, exist_ok=True)
 
+    _clear_db_sidecars(dest)  # never inherit a prior brain's stale WAL
     with tarfile.open(archive, "r:gz") as tar:
         # guardia path-traversal: tutto deve restare dentro dest
         for m in tar.getmembers():

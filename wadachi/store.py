@@ -31,6 +31,15 @@ def _slugify(text: str) -> str:
     return text[:80].strip("-")
 
 
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write a file atomically: a concurrent reader (or writer) never sees a
+    torn/half-written file. Write to a unique temp file in the same directory,
+    then os.replace (atomic on the same filesystem)."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{id(text) & 0xffffff}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 class MemoryStore:
     def __init__(self, brain_dir: Optional[str] = None):
         # default: ~/.wadachi, ma un brain legacy in ~/.engram continua a funzionare
@@ -56,8 +65,16 @@ class MemoryStore:
         run_migrations(self.db_path)
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path))
+        # WAL + busy_timeout make the brain safe under concurrent access from
+        # several MCP clients at once (e.g. multiple Overmind agents): readers
+        # never block the writer, and a writer *waits* for the lock instead of
+        # failing immediately with "database is locked". journal_mode=WAL
+        # persists in the DB file header; re-applying it per connection is
+        # idempotent and cheap.
+        conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         return conn
 
     # ── Memory CRUD ───────────────────────────────────────────
@@ -79,23 +96,28 @@ class MemoryStore:
         proj_dir = self._project_dir(project)
         proj_dir.mkdir(parents=True, exist_ok=True)
 
-        # Avoid name collisions
-        filepath = proj_dir / f"{slug}.md"
-        counter = 1
-        while filepath.exists():
-            filepath = proj_dir / f"{slug}-{counter}.md"
-            counter += 1
-
-        # Write markdown with canonical (OKF-conformant) frontmatter
+        # Render first, then claim a filename race-free: O_CREAT|O_EXCL means
+        # two concurrent stores with the same title get distinct files instead
+        # of one silently overwriting the other (the old exists()-check was a
+        # TOCTOU race).
         from wadachi.mdio import render_memory_file
-        filepath.write_text(
-            render_memory_file(
-                {"title": title, "project": project, "tags": tags,
-                 "category": category, "created": now},
-                content,
-            ),
-            encoding="utf-8",
+        rendered = render_memory_file(
+            {"title": title, "project": project, "tags": tags,
+             "category": category, "created": now},
+            content,
         )
+        counter = 0
+        while True:
+            candidate = proj_dir / (f"{slug}.md" if counter == 0 else f"{slug}-{counter}.md")
+            try:
+                fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            except FileExistsError:
+                counter += 1
+                continue
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(rendered)
+            filepath = candidate
+            break
 
         # Insert metadata
         rel_path = str(filepath.relative_to(self.brain_dir))
@@ -572,7 +594,7 @@ class MemoryStore:
                 stem = Path(r["filepath"]).stem
                 lines.append(f"- [[{stem}]] — {r['title']} `{r['category']}`")
             lines.append("")
-            (self.brain_dir / "index.md").write_text("\n".join(lines), encoding="utf-8")
+            _atomic_write_text(self.brain_dir / "index.md", "\n".join(lines))
         except OSError:
             pass
 

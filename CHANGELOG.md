@@ -3,6 +3,25 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [0.14.0] — 2026-07-20
+
+### Added — accesso concorrente (multi-client)
+- **Il brain è ora sicuro sotto accesso concorrente** da più client MCP
+  contemporaneamente (es. più agenti di Overmind in parallelo). Il DB gira in
+  **WAL** con `busy_timeout`: i lettori non bloccano mai lo scrittore, e uno
+  scrittore *aspetta* il lock invece di fallire con "database is locked".
+- **Scritture su file atomiche**: `index.md` viene riscritto via file
+  temporaneo + `os.replace`, e i file memoria vengono creati con
+  `O_CREAT|O_EXCL` — due scritture concorrenti con lo stesso titolo ottengono
+  file distinti invece che una sovrascriva l'altra (era una race TOCTOU).
+
+### Fixed — interazioni con il WAL
+- `wadachi export` archivia ora uno **snapshot completo** del DB (`VACUUM INTO`,
+  legge anche il WAL) restando **rigorosamente read-only** sul brain sorgente.
+- `restore`/`restore --replace` e il backup pre-migrazione ripuliscono/consolidano
+  i sidecar `brain.db-wal`/`-shm` così un brain ripristinato non eredita mai un
+  WAL stantìo del brain precedente.
+
 ## [0.13.0] — 2026-07-15
 
 ### Added

@@ -3,6 +3,62 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [0.14.1] — 2026-08-10
+
+### Fixed — la concorrenza di 0.14.0 era incompleta
+
+0.14.0 dichiarava il brain sicuro sotto accesso concorrente. Misurato con
+**processi** separati — non thread — non lo era: 8 processi che scrivevano lo
+stesso brain perdevano 1–3 memorie per run, quattro run su cinque, e potevano
+non riuscire ad aprirlo affatto.
+
+Il test di 0.14.0 non poteva accorgersene: usa 24 **thread in un solo
+processo**, dove il GIL serializza abbastanza da rendere rare le collisioni. Il
+caso reale (il pool stdio di Overmind) sono processi separati su core diversi.
+
+- **Le migrazioni ora sono serializzate fra processi** (file lock su
+  `brain.db.migrate.lock`). `run_migrations` legge la versione, decide cosa è
+  pendente e applica: tre passi corretti solo se nessun altro fa lo stesso. Su
+  un brain **nuovo** tutti leggevano 0, tutti applicavano 0001, e i perdenti
+  morivano con `UNIQUE constraint failed: schema_version.version` — cioè non
+  riuscivano ad aprire il brain. È esattamente ciò che succede la prima volta
+  che più agenti partono insieme su un brain appena creato.
+- **`PRAGMA journal_mode=WAL` non viene più rieseguito a ogni connessione.**
+  Vive nell'header del file, quindi va impostato una volta sola — e impostarlo
+  richiede un lock esclusivo per cui SQLite **non** consulta il busy handler,
+  quindi ripeterlo restituisce `SQLITE_BUSY` mentre un altro processo scrive,
+  senza che i 30s di `busy_timeout` abbiano voce. Ora è in `_ensure_wal`, nel
+  runner delle migrazioni: lettura senza lock su un brain esistente, una sola
+  scrittura su uno nuovo.
+- **Ogni transazione che scrive apre `BEGIN IMMEDIATE`** (`MemoryStore._write`).
+  Python apre le transazioni *deferred*: una che legge e poi scrive nasce
+  lettrice e prova a promuoversi, e se qualcuno ha committato nel frattempo
+  SQLite risponde `SQLITE_BUSY_SNAPSHOT` — anche lì il busy handler non viene
+  consultato. Prendere il lock in anticipo trasforma un errore irrecuperabile in
+  un'attesa. Riguarda `store_memory`, `update_memory`, `delete_memory`,
+  `store_decision`, `set_belief`, `store_insight`, `set_insight_status`,
+  `register_project`, `save_embedding`, `touch_access`.
+- **Niente più file orfani.** `store_memory` scrive il `.md` prima della riga
+  (serve a `O_EXCL` per prendersi il nome senza gara): se l'insert falliva, il
+  payload restava nel vault e invisibile a `list_memories` — 176 file contro 175
+  righe. Ora un insert fallito si porta via il file.
+
+### Tests
+
+- `test_concurrent_open_of_a_new_brain`: N processi che aprono lo stesso brain
+  nuovo insieme, nessuno deve morire.
+- `test_concurrent_writes_across_processes`: 12 processi × 50 scritture con
+  barriera, zero perdite **e** coerenza file ↔ righe. Quest'ultima asserzione è
+  quella che i test a thread non fanno: contare solo le righe direbbe "perse
+  25", contare anche i file dice che il brain era *incoerente*, che è peggio.
+
+**Nota onesta sull'attribuzione:** i due difetti si mascherano a vicenda e non è
+stato possibile isolare quale dei due causasse quali perdite — applicandone uno
+solo, la riproduzione smetteva di fallire in entrambi i casi. La gara sulle
+migrazioni ha una riproduzione deterministica e un test dedicato; gli altri tre
+cambiamenti sono correzioni giustificate dal comportamento documentato di
+SQLite, non dalla singola misura.
+
 ## [0.14.0] — 2026-07-20
 
 ### Added — accesso concorrente (multi-client)

@@ -1,5 +1,9 @@
 """1.2 — MemoryStore: CRUD, casi limite, versioning, beliefs, insights, progetti."""
 
+import os
+import time
+from pathlib import Path
+
 
 # ── CRUD di base e casi limite ────────────────────────────────
 
@@ -235,3 +239,140 @@ def test_wal_mode_enabled(store):
     with store._conn() as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+
+
+# ── Concorrenza fra PROCESSI (il caso reale di Overmind) ──────────────────
+#
+# I due test sopra usano thread in UN processo, ed è per questo che non
+# prendevano nulla: al confine Python il GIL serializza abbastanza da rendere
+# le collisioni rare. Overmind lancia invece *processi* separati — il pool
+# stdio ne apre fino a OVERMIND_MEMORY_POOL per brain — che girano su core
+# diversi e collidono davvero. I due test qui sotto coprono i due momenti in
+# cui si collide: l'apertura del brain e la scrittura.
+
+_CHILD_WRITE = r'''
+import sys, time
+from pathlib import Path
+from wadachi.store import MemoryStore
+
+brain, sync, n, per = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
+store = MemoryStore(brain)
+(sync / f"ready-{n}").touch()
+deadline = time.time() + 60
+while not (sync / "go").exists():
+    if time.time() > deadline:
+        print("TIMEOUT attesa via", file=sys.stderr); sys.exit(3)
+    time.sleep(0.0005)      # stretto, ma cede la CPU: lo spin puro affama il padre
+for k in range(per):
+    store.store_memory(f"corpo {n}-{k}", f"processo {n} memoria {k}")
+'''
+
+_CHILD_OPEN = r'''
+import sys
+from wadachi.store import MemoryStore
+MemoryStore(sys.argv[1])
+'''
+
+
+def _spawn(code: str, *args: str):
+    import subprocess
+    import sys
+
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]))
+    return subprocess.Popen(
+        [sys.executable, "-c", code, *args],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+
+
+def _reap(children, timeout=180):
+    """Attende i figli e restituisce gli stderr di quelli falliti."""
+    import subprocess
+
+    bad = []
+    for i, c in enumerate(children):
+        try:
+            _, err = c.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            c.kill()
+            bad.append(f"figlio {i}: timeout")
+            continue
+        if c.returncode != 0:
+            last = err.strip().splitlines()[-1] if err.strip() else f"rc={c.returncode}"
+            bad.append(f"figlio {i}: {last}")
+    return bad
+
+
+def test_concurrent_open_of_a_new_brain(tmp_path):
+    """N processi che aprono lo STESSO brain nuovo insieme: nessuno deve morire.
+
+    `run_migrations` legge la versione corrente, decide cosa è pendente e poi
+    applica — tre passi corretti solo se nessun altro sta facendo lo stesso. Su
+    un brain nuovo tutti leggevano 0, tutti decidevano che 0001 era pendente, e
+    il primo che committava faceva morire gli altri con
+    `UNIQUE constraint failed: schema_version.version`.
+
+    È esattamente ciò che succede la prima volta che gli agenti di un'azienda
+    partono insieme su un brain appena creato — e chi perde non perde una
+    memoria: non riesce ad aprire il brain.
+    """
+    brain = str(tmp_path / "brain")
+    children = [_spawn(_CHILD_OPEN, brain) for _ in range(8)]
+    assert _reap(children) == [], "aprire un brain nuovo in parallelo ha ucciso qualcuno"
+
+    from wadachi.store import MemoryStore
+
+    assert MemoryStore(brain).stats()["memories"] == 0
+
+
+def test_concurrent_writes_across_processes(tmp_path):
+    """N *processi* che scrivono lo stesso brain: nessuna perdita, nessun errore,
+    nessun file orfano.
+
+    L'ultima asserzione è quella che il test a thread non fa. `store_memory`
+    scrive il .md prima della riga, quindi un insert fallito lasciava il payload
+    nel vault e invisibile a `list_memories`. Misurato prima del fix: 176 file
+    contro 175 righe. Contare solo le righe direbbe "perse 25"; contare anche i
+    file dice che il brain era *incoerente*, che è peggio.
+    """
+    procs, per = 12, 50
+    expected = procs * per
+    brain_dir = tmp_path / "brain"
+    sync = tmp_path / "sync"
+    sync.mkdir()
+
+    children = [
+        _spawn(_CHILD_WRITE, str(brain_dir), str(sync), str(i), str(per))
+        for i in range(procs)
+    ]
+    try:
+        deadline = time.time() + 90
+        while len(list(sync.glob("ready-*"))) < procs:
+            dead = [i for i, c in enumerate(children) if c.poll() is not None]
+            assert not dead, f"figli morti prima del via: {dead} — {_reap(children)}"
+            assert time.time() < deadline, "i figli non sono mai diventati pronti"
+            time.sleep(0.005)
+        (sync / "go").touch()          # tutti partono nello stesso istante
+        bad = _reap(children)
+    finally:
+        for c in children:
+            if c.poll() is None:
+                c.kill()
+
+    assert bad == [], f"scritture concorrenti fallite: {bad}"
+
+    from wadachi.store import MemoryStore
+
+    store = MemoryStore(str(brain_dir))
+    rows = store.list_memories()
+    assert len(rows) == expected, f"memorie perse: {len(rows)}/{expected}"
+
+    # Coerenza file ↔ righe: ogni riga ha il suo file, nessun file è orfano.
+    on_disk = {p.name for p in (store.brain_dir / "global").glob("*.md")}
+    in_db = {Path(m["filepath"]).name for m in rows}
+    assert on_disk == in_db, (
+        f"vault incoerente — solo su disco: {sorted(on_disk - in_db)}, "
+        f"solo nel db: {sorted(in_db - on_disk)}"
+    )
+    assert len({m["id"] for m in rows}) == expected, "id duplicati"

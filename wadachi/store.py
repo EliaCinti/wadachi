@@ -18,9 +18,10 @@ import sqlite3
 import json
 import os
 import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 
 def _slugify(text: str) -> str:
@@ -65,17 +66,53 @@ class MemoryStore:
         run_migrations(self.db_path)
 
     def _conn(self) -> sqlite3.Connection:
-        # WAL + busy_timeout make the brain safe under concurrent access from
-        # several MCP clients at once (e.g. multiple Overmind agents): readers
-        # never block the writer, and a writer *waits* for the lock instead of
-        # failing immediately with "database is locked". journal_mode=WAL
-        # persists in the DB file header; re-applying it per connection is
-        # idempotent and cheap.
+        # WAL + busy_timeout keep the brain usable from several MCP clients at
+        # once (e.g. multiple Overmind agents): readers never block the writer,
+        # and a writer *waits* for the lock instead of failing immediately with
+        # "database is locked".
+        #
+        # journal_mode is deliberately NOT set here. It lives in the DB file
+        # header, so it only ever needs setting once — and setting it needs a
+        # brief exclusive lock for which SQLite does **not** run the busy
+        # handler, so doing it per connection returns SQLITE_BUSY the instant
+        # another process is mid-write. That is not theoretical: eight
+        # processes writing one brain lost 1–3 memories per run to exactly this
+        # (see test_concurrent_writes_across_processes). It is set once, in the
+        # migration runner.
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
+
+    @contextmanager
+    def _write(self) -> "Iterator[sqlite3.Connection]":
+        """A transaction that intends to write, opened as `BEGIN IMMEDIATE`.
+
+        Python's sqlite3 starts transactions *deferred*: a transaction that
+        reads and then writes begins life as a reader and tries to promote. If
+        another connection committed in between, SQLite answers
+        `SQLITE_BUSY_SNAPSHOT` — and the busy handler is not consulted for that
+        either, so `busy_timeout` cannot save it. Taking the write lock up
+        front turns an unrecoverable error back into a wait.
+
+        Every path that writes goes through here, including plain inserts: the
+        cost is a lock taken a few milliseconds earlier, and the alternative is
+        remembering which transactions read first.
+        """
+        conn = self._conn()
+        conn.isolation_level = None  # we drive BEGIN/COMMIT ourselves
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            yield conn
+            conn.execute("COMMIT")
+        except BaseException:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            conn.close()
 
     # ── Memory CRUD ───────────────────────────────────────────
 
@@ -119,15 +156,24 @@ class MemoryStore:
             filepath = candidate
             break
 
-        # Insert metadata
+        # Insert metadata. The file is written first so O_EXCL can claim the
+        # name race-free — but that leaves a window where the payload exists
+        # and its index row does not. If the insert fails, the file goes with
+        # it: an orphan .md is invisible to `list_memories` while sitting in
+        # the vault, which is a worse outcome than a clean failure. (Eight
+        # concurrent processes used to leave 40 files against 37 rows.)
         rel_path = str(filepath.relative_to(self.brain_dir))
-        with self._conn() as conn:
-            cursor = conn.execute(
-                """INSERT INTO memories (title, slug, project, tags, category, filepath, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (title, slug, project, json.dumps(tags), category, rel_path, now, now),
-            )
-            memory_id = cursor.lastrowid
+        try:
+            with self._write() as conn:
+                cursor = conn.execute(
+                    """INSERT INTO memories (title, slug, project, tags, category, filepath, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (title, slug, project, json.dumps(tags), category, rel_path, now, now),
+                )
+                memory_id = cursor.lastrowid
+        except BaseException:
+            filepath.unlink(missing_ok=True)
+            raise
 
         self.rebuild_index()
         self.append_log("store", f"[[{filepath.stem}]] #{memory_id} · {title[:80]}")
@@ -199,7 +245,7 @@ class MemoryStore:
 
     def delete_memory(self, memory_id: int) -> bool:
         """Delete a memory (db row + file)."""
-        with self._conn() as conn:
+        with self._write() as conn:
             row = conn.execute("SELECT filepath FROM memories WHERE id = ?", (memory_id,)).fetchone()
             if not row:
                 return False
@@ -213,7 +259,7 @@ class MemoryStore:
 
     def update_memory(self, memory_id: int, content: str | None = None, tags: list[str] | None = None) -> bool:
         """Update a memory's content and/or tags."""
-        with self._conn() as conn:
+        with self._write() as conn:
             row = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,)).fetchone()
             if not row:
                 return False
@@ -299,7 +345,7 @@ class MemoryStore:
             "superseded_by": cur["superseded_by"] if superseded_by is None else superseded_by,
             "review_reason": cur["review_reason"] if review_reason is None else review_reason,
         }
-        with self._conn() as conn:
+        with self._write() as conn:
             conn.execute(
                 """INSERT INTO beliefs (memory_id, confidence, status, valid_until, sources,
                         superseded_by, last_reviewed, review_reason)
@@ -334,7 +380,7 @@ class MemoryStore:
     def store_insight(self, claim: str, itype: str, evidence_ids: list[int],
                       status: str = "proposed") -> dict:
         now = datetime.now(timezone.utc).isoformat()
-        with self._conn() as conn:
+        with self._write() as conn:
             cur = conn.execute(
                 "INSERT INTO insights (claim, itype, evidence_ids, status, created_at) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -365,7 +411,7 @@ class MemoryStore:
                 "evidence_ids": json.loads(r["evidence_ids"]), "status": r["status"]}
 
     def set_insight_status(self, insight_id: int, status: str) -> bool:
-        with self._conn() as conn:
+        with self._write() as conn:
             cur = conn.execute("UPDATE insights SET status = ? WHERE id = ?", (status, insight_id))
             return cur.rowcount > 0
 
@@ -380,7 +426,7 @@ class MemoryStore:
         project: str = "global",
     ) -> dict:
         now = datetime.now(timezone.utc).isoformat()
-        with self._conn() as conn:
+        with self._write() as conn:
             cursor = conn.execute(
                 """INSERT INTO decisions (project, decision, rationale, alternatives, context, created_at)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -457,7 +503,7 @@ class MemoryStore:
         now = datetime.now(timezone.utc).isoformat()
         paths = paths or []
         (self.brain_dir / "projects" / name).mkdir(parents=True, exist_ok=True)
-        with self._conn() as conn:
+        with self._write() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO projects (name, description, paths, created_at)
                    VALUES (?, ?, ?, ?)""",
@@ -550,7 +596,7 @@ class MemoryStore:
         ]
 
     def save_embedding(self, table: str, row_id: int, embedding_bytes: bytes):
-        with self._conn() as conn:
+        with self._write() as conn:
             conn.execute(f"UPDATE {table} SET embedding = ? WHERE id = ?", (embedding_bytes, row_id))
 
     def list_supersessions(self) -> list[tuple[int, int]]:
@@ -566,7 +612,7 @@ class MemoryStore:
         if not memory_ids:
             return
         now = datetime.now(timezone.utc).isoformat()
-        with self._conn() as conn:
+        with self._write() as conn:
             conn.executemany(
                 "UPDATE memories SET access_count = access_count + 1, last_accessed = ? WHERE id = ?",
                 [(now, mid) for mid in memory_ids],

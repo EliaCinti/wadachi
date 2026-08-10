@@ -18,7 +18,11 @@ license = { text = "MIT" }
 requires-python = ">=3.11"
 keywords = ["mcp", "memory", "ai", "claude", "semantic-search", "wadachi"]
 dependencies = [
-    "mcp[cli]>=1.0.0",
+    # <2: mcp 2.0.0 ha spostato `mcp.server.fastmcp`, che server.py importa.
+    # Senza il tetto, ogni install nuova prende la 2.x e la suite non parte —
+    # main era verde a luglio solo perché la 2.0.0 non esisteva ancora. Il
+    # porting a 2.x è un lavoro suo, non un effetto collaterale di una fix.
+    "mcp[cli]>=1.0.0,<2",
     "numpy>=1.26.0",
 ]
 

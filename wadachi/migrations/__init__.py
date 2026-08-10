@@ -27,6 +27,7 @@ import importlib.util
 import re
 import shutil
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -91,6 +92,60 @@ def _backup(db_path: Path, current: int) -> Path:
     return dest
 
 
+def _ensure_wal(conn: sqlite3.Connection) -> None:
+    """Put the brain in WAL, once, and never fight for the lock to re-confirm it.
+
+    `journal_mode` lives in the database file header, so it survives every
+    close and only ever needs setting once. Setting it is not free, though:
+    it needs a brief exclusive lock, and SQLite does **not** invoke the busy
+    handler for a journal-mode change — so a connection that re-applies it
+    while another process is mid-write gets `SQLITE_BUSY` immediately, with the
+    30-second `busy_timeout` never getting a say.
+
+    That is why this reads first and only writes when the mode is actually
+    wrong. On an existing brain it is a lock-free read on every open; on a new
+    one it is a single write, at creation, with nobody else around.
+    """
+    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    if str(mode).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
+
+
+@contextmanager
+def _exclusive(db_path: Path):
+    """Serialize migration across processes with an OS file lock.
+
+    `run_migrations` reads the current version, decides what is pending, and
+    then applies it — three steps that are only correct if nobody else is doing
+    the same thing. Without a lock, N processes opening a *new* brain at the
+    same moment all read version 0, all decide 0001 is pending, and all apply
+    it: the first commits, the rest die with
+    `UNIQUE constraint failed: schema_version.version`.
+
+    That is not a corner case — it is what happens the first time a company's
+    agents start together on a freshly provisioned brain, and the loser does
+    not lose a memory, it fails to open the brain at all.
+
+    A file lock rather than `BEGIN IMMEDIATE` because each migration
+    deliberately runs in its own transaction (see the module docstring), so
+    there is no single transaction to widen. Best-effort by design: a platform
+    without `fcntl` keeps the old behaviour rather than refusing to run.
+    """
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover — non-POSIX
+        yield
+        return
+    lock_path = db_path.with_name(db_path.name + ".migrate.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def run_migrations(db_path: Path) -> list[int]:
     """Apply pending migrations. Returns the list of versions applied."""
     db_path = Path(db_path)
@@ -98,10 +153,19 @@ def run_migrations(db_path: Path) -> list[int]:
     if not migrations:
         raise MigrationError("nessuna migrazione trovata (manca 0001_baseline.py?)")
 
+    with _exclusive(db_path):
+        return _run_locked(db_path, migrations)
+
+
+def _run_locked(db_path: Path, migrations: list[tuple[int, str, Path]]) -> list[int]:
     conn = sqlite3.connect(str(db_path))
     conn.isolation_level = None  # autocommit: le transazioni le gestiamo noi (BEGIN/COMMIT)
     try:
         try:
+            # Inside the guard: reading the journal mode is the first thing
+            # that touches the file, so a corrupt one fails here and must still
+            # get the message that names the backup directory.
+            _ensure_wal(conn)
             current = _current_version(conn)
         except sqlite3.DatabaseError as e:
             raise MigrationError(

@@ -536,14 +536,35 @@ class MemoryStore:
 
     # ── Embedding helpers (used by search.py) ─────────────────
 
-    def get_memories_for_embedding(self, project: str | None = None) -> list[dict]:
-        """Get memories that need embedding or all memories for search."""
+    def get_memories_for_embedding(
+        self,
+        project: str | None = None,
+        since_id: int | None = None,
+        exclude_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Get memories that need embedding or all memories for search.
+
+        `since_id` / `exclude_id` / `limit` narrow this to a collision window
+        (ADR-0026) without duplicating the file-reading and embedding-text
+        logic: a window scored against a different text than `search.py`
+        produces would not be comparable.
+        """
         query = ("SELECT id, title, tags, category, filepath, embedding, project, "
                  "created_at, access_count, last_accessed FROM memories WHERE 1=1")
         params: list = []
         if project:
             query += " AND (project = ? OR project = 'global')"
             params.append(project)
+        if since_id is not None:
+            query += " AND id > ?"
+            params.append(int(since_id))
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(int(exclude_id))
+        if limit is not None:
+            query += " ORDER BY id LIMIT ?"
+            params.append(int(limit))
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -572,12 +593,27 @@ class MemoryStore:
             })
         return results
 
-    def get_decisions_for_embedding(self, project: str | None = None) -> list[dict]:
+    def get_decisions_for_embedding(
+        self,
+        project: str | None = None,
+        since_id: int | None = None,
+        exclude_id: int | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
         query = "SELECT id, decision, rationale, context, project, embedding FROM decisions WHERE 1=1"
         params: list = []
         if project:
             query += " AND (project = ? OR project = 'global')"
             params.append(project)
+        if since_id is not None:
+            query += " AND id > ?"
+            params.append(int(since_id))
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(int(exclude_id))
+        if limit is not None:
+            query += " ORDER BY id LIMIT ?"
+            params.append(int(limit))
 
         with self._conn() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -595,9 +631,106 @@ class MemoryStore:
             for r in rows
         ]
 
+    def embedding_sample(self, project: str | None = None, limit: int = 200) -> list[bytes]:
+        """Raw embedding blobs, newest first — the corpus sample used to centre
+        collision scores (ADR-0026).
+
+        Deliberately does NOT go through `get_memories_for_embedding`: that one
+        opens and parses every markdown file, which is the wrong price to pay
+        when all we need is the mean of some vectors.
+        """
+        q = "SELECT embedding FROM memories WHERE embedding IS NOT NULL"
+        params: list = []
+        if project:
+            q += " AND (project = ? OR project = 'global')"
+            params.append(project)
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(int(limit))
+        with self._conn() as conn:
+            return [r["embedding"] for r in conn.execute(q, params).fetchall()]
+
     def save_embedding(self, table: str, row_id: int, embedding_bytes: bytes):
         with self._write() as conn:
             conn.execute(f"UPDATE {table} SET embedding = ? WHERE id = ?", (embedding_bytes, row_id))
+
+    # ── Watermarks: "where was the brain when I started?" (ADR-0026) ──
+
+    def watermark(self, project: str | None = None) -> dict:
+        """The brain's current position, as the highest id in each table.
+
+        O(1): `id` is INTEGER PRIMARY KEY, so MAX(id) is an index lookup, not a
+        scan, and nothing is embedded. Cheap enough to take on every checkout.
+
+        Sound because writes serialise. Every write transaction is
+        `BEGIN IMMEDIATE` (see `_write`), so there is one writer at a time and
+        ids are handed out in commit order: a reader that has seen watermark W
+        can never be overtaken later by a row below W.
+
+        **Invariant:** pass the same `project` here and to `changed_since`.
+        A project-scoped watermark is a position within that project's rows;
+        comparing it against another project's ids is meaningless.
+        """
+        with self._conn() as conn:
+            if project:
+                m = conn.execute(
+                    "SELECT MAX(id) AS v FROM memories WHERE project = ?", (project,)
+                ).fetchone()["v"]
+                d = conn.execute(
+                    "SELECT MAX(id) AS v FROM decisions WHERE project = ?", (project,)
+                ).fetchone()["v"]
+            else:
+                m = conn.execute("SELECT MAX(id) AS v FROM memories").fetchone()["v"]
+                d = conn.execute("SELECT MAX(id) AS v FROM decisions").fetchone()["v"]
+        return {"memories": m or 0, "decisions": d or 0, "project": project}
+
+    def changed_since(
+        self,
+        watermark: dict,
+        project: str | None = None,
+        limit: int = 50,
+    ) -> dict:
+        """Everything written after the given position — an indexed range scan.
+
+        This is the cheap half of change awareness: no embeddings, no
+        similarity, just "what appeared while I was not looking".
+        """
+        m_wm = int((watermark or {}).get("memories") or 0)
+        d_wm = int((watermark or {}).get("decisions") or 0)
+
+        mem_q = ("SELECT id, title, project, category, tags, created_at "
+                 "FROM memories WHERE id > ?")
+        dec_q = ("SELECT id, decision, project, created_at "
+                 "FROM decisions WHERE id > ?")
+        mem_a: list = [m_wm]
+        dec_a: list = [d_wm]
+        if project:
+            mem_q += " AND project = ?"
+            dec_q += " AND project = ?"
+            mem_a.append(project)
+            dec_a.append(project)
+        mem_q += " ORDER BY id LIMIT ?"
+        dec_q += " ORDER BY id LIMIT ?"
+        mem_a.append(limit)
+        dec_a.append(limit)
+
+        with self._conn() as conn:
+            mems = conn.execute(mem_q, mem_a).fetchall()
+            decs = conn.execute(dec_q, dec_a).fetchall()
+
+        return {
+            "memories": [
+                {"id": r["id"], "title": r["title"], "project": r["project"],
+                 "category": r["category"],
+                 "tags": json.loads(r["tags"]) if r["tags"] else [],
+                 "created_at": r["created_at"]}
+                for r in mems
+            ],
+            "decisions": [
+                {"id": r["id"], "decision": r["decision"], "project": r["project"],
+                 "created_at": r["created_at"]}
+                for r in decs
+            ],
+        }
 
     def list_supersessions(self) -> list[tuple[int, int]]:
         """Coppie (vecchia, nuova) dai belief: chi ha superato chi."""

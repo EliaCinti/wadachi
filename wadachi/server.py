@@ -109,7 +109,61 @@ mcp = FastMCP(
 )
 
 
+def _collisions_for(*, kind, row_id, text, project, watermark):
+    """Collision candidates for a write (ADR-0026), or [] when unavailable.
+
+    Never raises into the write path: a memory that was stored successfully must
+    not be reported as failed because the *advisory* check tripped. A failure
+    here costs a warning, not a write.
+    """
+    if not watermark or not row_id:
+        return []
+    try:
+        from wadachi.collisions import find_collisions
+        return find_collisions(store, kind=kind, row_id=row_id, text=text,
+                               project=project, watermark=watermark)
+    except Exception as e:  # noqa: BLE001 — advisory only, see docstring
+        log.warning("collision check failed: %s", e)
+        return []
+
+
 # ── Memory Tools ──────────────────────────────────────────────
+
+
+@tool()
+def brain_watermark(project: str | None = None) -> str:
+    """Where the brain is right now — take this before starting work.
+
+    Returns the highest id in each table, which is a position you can come back
+    to: `changed_since` will tell you everything that appeared after it, and
+    passing it to `store_memory` lets the brain warn you if somebody else wrote
+    something close while you were working.
+
+    Cheap on purpose (an index lookup, nothing embedded), so taking one at the
+    start of every task costs nothing.
+
+    Args:
+        project: Scope the position to one project. Use the SAME value here and
+            in `changed_since` — a project-scoped position means nothing when
+            compared against another project's ids.
+    """
+    return json.dumps(store.watermark(project), indent=2)
+
+
+@tool()
+def changed_since(watermark: dict, project: str | None = None, limit: int = 50) -> str:
+    """What appeared in the brain after a position you took earlier.
+
+    Answers "what did I miss while I was working?" without a search: no query,
+    no embeddings, just the rows that came after. Use it when resuming, before
+    concluding, or any time a decision depends on the state of things.
+
+    Args:
+        watermark: the object returned by `brain_watermark`.
+        project: same scope you used when taking the watermark.
+        limit: maximum rows per table.
+    """
+    return json.dumps(store.changed_since(watermark, project, limit), indent=2)
 
 
 @tool()
@@ -119,6 +173,7 @@ def store_memory(
     project: str = "global",
     tags: list[str] | None = None,
     category: str = "note",
+    since_watermark: dict | None = None,
 ) -> str:
     """Store knowledge in the Brain for future sessions.
 
@@ -128,8 +183,17 @@ def store_memory(
         project: Project name (use 'global' for cross-project knowledge).
         tags: Keywords for easier retrieval (e.g. ["python", "fastapi", "auth"]).
         category: One of: architecture, bugfix, config, pattern, context, reference, note.
+        since_watermark: the position from `brain_watermark` when you started.
+            Supply it and the reply carries `collisions`: anything written by
+            somebody else since then that is close to what you just stored.
+            The memory is saved either way — this warns, it never blocks.
     """
     result = store.store_memory(content, title, project, tags, category)
+    result["collisions"] = _collisions_for(
+        kind="memories", row_id=result.get("id"),
+        text=f"{title}. Tags: {', '.join(tags or [])}. {content[:1000]}",
+        project=project, watermark=since_watermark,
+    )
     return json.dumps(result, indent=2)
 
 
@@ -248,6 +312,7 @@ def store_decision(
     alternatives: str = "",
     context: str = "",
     project: str = "global",
+    since_watermark: dict | None = None,
 ) -> str:
     """Log a decision for future reference. Invaluable for understanding past choices.
 
@@ -257,8 +322,18 @@ def store_decision(
         alternatives: What other options were considered and why they were rejected.
         context: Surrounding context that influenced the decision.
         project: Project this decision belongs to.
+        since_watermark: the position from `brain_watermark` when you started.
+            Supply it and the reply carries `collisions`: anything written by
+            somebody else since then that is close to what you just decided —
+            which is exactly how two agents deciding opposite things gets
+            caught. The decision is saved either way.
     """
     result = store.store_decision(decision, rationale, alternatives, context, project)
+    result["collisions"] = _collisions_for(
+        kind="decisions", row_id=result.get("id"),
+        text=f"{decision}. {rationale} {context}",
+        project=project, watermark=since_watermark,
+    )
     return json.dumps(result, indent=2)
 
 

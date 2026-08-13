@@ -3,6 +3,69 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [0.15.0] — 2026-08-13
+
+### Added — sapere che qualcun altro ha toccato la stessa cosa (Overmind ADR-0026)
+
+Con più agenti sullo stesso brain, ciascuno legge all'inizio e scrive alla fine.
+In mezzo il brain si muove e nessuno lo dice: due agenti possono arrivare a
+conclusioni opposte, salvarle entrambe, e lasciare l'organizzazione con una
+contraddizione che nessuno ha notato.
+
+**La visibilità non era il problema.** Misurato prima di progettare: 8 processi
+che scrivono un brain **appena creato** committano tutti (8/8, 0,07s) e 4
+processi lettori vedono immediatamente tutte le scritture. Non manca la
+capacità di vedere un cambiamento — manca un motivo per guardare.
+
+- **`brain_watermark(project)`** — la posizione corrente del brain (`MAX(id)`).
+  Un lookup su indice, niente embedding: si prende a ogni checkout senza pensarci.
+- **`changed_since(watermark, project)`** — cos'è comparso dopo quella posizione.
+  Scansione su intervallo indicizzato, nessuna query semantica: risponde a «cosa
+  mi sono perso mentre lavoravo».
+- **`store_memory` / `store_decision` accettano `since_watermark`** e
+  restituiscono `collisions`: ciò che qualcun altro ha scritto nel frattempo ed
+  è vicino a quello che hai appena salvato. **Avvisa, non blocca mai** — la
+  memoria viene salvata comunque.
+
+Corretto perché le scritture serializzano: dalla 0.14.1 ogni transazione è
+`BEGIN IMMEDIATE`, quindi gli id sono assegnati in ordine di commit e chi ha
+visto la filigrana W non può essere scavalcato da una riga sotto W.
+
+### I punteggi sono centrati sulla media del corpus, e non è un dettaglio
+
+`bge-small-en-v1.5` è un modello inglese: sull'italiano comprime tutto verso
+l'alto. Su coseno grezzo, misurato:
+
+| | collisione | scorrelate |
+|---|---|---|
+| italiano | 0,900 | fino a **0,709** |
+| inglese | 0,767 | fino a 0,428 |
+
+Gli intervalli si sovrappongono fra lingue — le collisioni inglesi stanno *sotto*
+dove arriva ancora il rumore italiano — quindi **nessuna soglia assoluta separa
+entrambe**. Un primo tentativo a 0,72 è stato beccato da un test in cui due
+memorie italiane del tutto scorrelate facevano 0,753.
+
+Sottraendo la media del corpus si toglie la componente comune (lingua, dominio,
+boilerplate) e la separazione si apre: italiano 0,818 contro 0,371 · inglese
+0,700 contro 0,106. La soglia (0,55) sta nel mezzo con margine da entrambi i lati.
+
+La media è quella del **brain**, non della finestra: centrare sulla finestra è
+degenere quando è piccola — con un solo elemento i due vettori sono simmetrici
+rispetto al loro punto medio e il coseno vale esattamente −1, collisione o no.
+Una finestra da uno è il caso comune.
+
+### Onestà su cosa rileva
+
+La vicinanza coseno **non è** contraddizione: due memorie possono essere quasi
+identiche e concordare del tutto. Quello che viene rilevato è *prossimità sotto
+concorrenza* — qualcun altro ha toccato questa cosa mentre non guardavi — e viene
+riportato come candidato da far giudicare a un umano.
+
+Su un brain troppo giovane per avere un corpus (meno di 5 embedding) la
+rilevazione ricade sulle keyword: un punteggio non calibrato è peggio di nessun
+punteggio.
+
 ## [0.14.1] — 2026-08-10
 
 ### Fixed — la concorrenza di 0.14.0 era incompleta

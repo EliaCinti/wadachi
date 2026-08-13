@@ -209,3 +209,39 @@ def test_two_separate_processes_see_each_others_collision(tmp_path):
 
     assert b["collisions"], "B non ha visto la scrittura di A: la finestra non funziona fra processi"
     assert b["collisions"][0]["kind"] == "memory"
+
+
+# ── Il percorso di ripiego, esercitato SEMPRE ────────────────
+#
+# La CI installa `.[dev]`, non l'extra `semantic`: là fastembed non c'è e gira
+# il fallback. In locale c'è, e la prima versione di questi test attraversava il
+# percorso semantico senza dirlo — CI rossa, verde in casa. Questo test forza il
+# ripiego ovunque, così le due macchine provano le stesse cose.
+
+
+@pytest.fixture()
+def keyword_only(monkeypatch):
+    import wadachi.collisions as c
+    monkeypatch.setattr(c, "_FASTEMBED_AVAILABLE", False)
+    return c
+
+
+def test_fallback_reports_a_close_write(brain, keyword_only):
+    wm = brain.watermark(project="acme")
+    brain.store_memory("Decisione: il carrello legacy va deprecato e rimosso dal checkout.",
+                       "Deprecare il carrello legacy", project="acme")
+    _, coll = _collide(brain, wm,
+                       "Decisione: il carrello legacy resta e va esteso nel checkout.",
+                       "Estendere il carrello legacy")
+    assert coll, "il ripiego non ha rilevato la collisione"
+    assert coll[0]["method"] == "keyword"
+
+
+def test_fallback_stays_quiet_on_unrelated_writes(brain, keyword_only):
+    wm = brain.watermark(project="acme")
+    brain.store_memory("aggiornare il colore dei bottoni nel tema scuro",
+                       "Palette del tema scuro", project="acme")
+    _, coll = _collide(brain, wm,
+                       "la fatturazione ricorrente passa a fatture mensili",
+                       "Fatturazione mensile")
+    assert coll == [], f"falso positivo nel ripiego: {coll}"

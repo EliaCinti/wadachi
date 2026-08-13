@@ -62,9 +62,9 @@ import numpy as np
 
 from wadachi.search import (
     _FASTEMBED_AVAILABLE,
+    _tokenize,
     cosine_similarity,
     embed_text,
-    keyword_score,
 )
 
 # In centred space. Above this, two items in the same window are close enough to
@@ -72,8 +72,9 @@ from wadachi.search import (
 # gets ignored, which is the failure mode this whole design exists to avoid.
 THRESHOLD = 0.55
 
-# Keyword overlap is a blunter instrument; it is held to its own bar.
-KEYWORD_THRESHOLD = 0.5
+# Jaccard overlap, on its own scale. Measured on the same pairs: collisions
+# 0.40 (it) / 0.50 (en), unrelated 0.105 (it) / 0.143 (en).
+KEYWORD_THRESHOLD = 0.28
 
 # A stale watermark should cost a bounded amount, not a full scan.
 WINDOW_CAP = 200
@@ -81,6 +82,23 @@ WINDOW_CAP = 200
 # Below this many embedded rows there is no corpus to centre against, and an
 # uncalibrated score is worse than no score.
 MIN_CORPUS = 5
+
+
+def _overlap(a: str, b: str) -> float:
+    """Symmetric token overlap (Jaccard) — the fallback when there are no
+    embeddings to compare.
+
+    `search.py`'s `keyword_score` is deliberately *asymmetric*: it divides by the
+    query's tokens because it scores a short query against a long document. Here
+    both sides are documents, and that asymmetry crushes the score toward zero
+    as the new item gets longer — measured 0.245 for a real collision against a
+    0.5 bar, which is why the first version of this fallback found nothing.
+    Jaccard has no preferred side, and comparing tokens rather than positions in
+    a learned space makes it language-neutral for free.
+    """
+    ta, tb = _tokenize(a), _tokenize(b)
+    union = ta | tb
+    return len(ta & tb) / len(union) if union else 0.0
 
 
 def _memory_text(m: dict) -> str:
@@ -185,13 +203,13 @@ def find_collisions(
         # against. Keyword overlap needs neither, and it is language-neutral
         # because it compares tokens rather than positions in a learned space.
         for m in mems:
-            s = keyword_score(text, m["title"], m.get("content") or "", m.get("tags") or [])
+            s = _overlap(text, _memory_text(m))
             if s >= KEYWORD_THRESHOLD:
                 candidates.append({"kind": "memory", "id": m["id"], "title": m["title"],
                                    "project": m["project"], "similarity": round(float(s), 3),
                                    "method": "keyword"})
         for d in decs:
-            s = keyword_score(text, d["decision"], d.get("rationale") or "", [])
+            s = _overlap(text, _decision_text(d))
             if s >= KEYWORD_THRESHOLD:
                 candidates.append({"kind": "decision", "id": d["id"],
                                    "title": d["decision"][:120], "project": d["project"],

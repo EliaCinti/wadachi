@@ -62,9 +62,17 @@ identiche e concordare del tutto. Quello che viene rilevato è *prossimità sott
 concorrenza* — qualcun altro ha toccato questa cosa mentre non guardavi — e viene
 riportato come candidato da far giudicare a un umano.
 
-Su un brain troppo giovane per avere un corpus (meno di 5 embedding) la
-rilevazione ricade sulle keyword: un punteggio non calibrato è peggio di nessun
-punteggio.
+Su un brain troppo giovane per avere un corpus (meno di 5 embedding), o dove
+`fastembed` non è installato, la rilevazione ricade sulla **sovrapposizione di
+token (Jaccard)**: collisioni 0,40 (it) / 0,50 (en) contro rumore 0,105 / 0,143.
+
+Non su `keyword_score`, che è deliberatamente *asimmetrico* — divide per i token
+della query perché confronta una query corta con un documento lungo. Qui i lati
+sono due documenti, e quell'asimmetria schiaccia il punteggio verso lo zero man
+mano che il nuovo elemento si allunga: una collisione vera faceva 0,245 contro
+una soglia di 0,5, ed è il motivo per cui la prima versione del ripiego non
+trovava nulla. Jaccard non ha un lato privilegiato, e confrontando token invece
+di posizioni in uno spazio appreso è neutro rispetto alla lingua.
 
 ## [0.14.1] — 2026-08-10
 

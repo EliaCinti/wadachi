@@ -1159,7 +1159,7 @@ def review_procedures(project: str | None = None) -> str:
 @tool()
 def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
          plan: list[str] | None = None, slug: str = "", outcome: str = "done",
-         distil: str = "", project: str | None = None) -> str:
+         distil: str = "", cwd: str = "", project: str | None = None) -> str:
     """Use this when a piece of work will outlive this conversation: open a desk
     at the start, close it when it lands.
 
@@ -1168,7 +1168,8 @@ def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
     learned; a desk holds what you are doing.
 
     Args:
-        action: "open", "close" or "list".
+        action: "open", "close" or "list" (open desks only — closed ones are
+            reachable by slug through desk_read once you have it).
         title: open — a short name for the thread of work.
         objective: open — what this work is for.
         done_when: open — how a machine (or you) can tell it is finished.
@@ -1180,9 +1181,12 @@ def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
         distil: close — the lesson worth keeping. Given, it becomes a real
             memory linked to the archived desk; omitted, nothing is stored, and
             that is a fine answer for work that taught nothing.
-        project: defaults to the project detected from the working directory.
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
     """
-    project = project or store.detect_project(os.getcwd()) or "global"
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
     try:
         if action == "open":
             return json.dumps(store.open_desk(title, objective, done_when,
@@ -1191,21 +1195,28 @@ def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
             return json.dumps(store.close_desk(slug, outcome, project,
                                                distil or None), indent=2)
         if action == "list":
-            return json.dumps(store.list_desks(project, status=None), indent=2)
+            return json.dumps(store.list_desks(project, status="open"), indent=2)
         return json.dumps({"error": f"action sconosciuta: {action}"}, indent=2)
     except ValueError as e:
         return json.dumps({"error": str(e)}, indent=2)
 
 
 @tool()
-def desk_read(slug: str = "", project: str | None = None) -> str:
+def desk_read(slug: str = "", cwd: str = "", project: str | None = None) -> str:
     """Use this when you are picking work back up and need to know where it
     stopped — the plan, the next step, and what was already tried and failed.
 
     Without a slug it opens the one desk left open in this project; if several
     are open it lists them rather than guessing.
+
+    Args:
+        slug: which desk (omit to resolve the one open desk in this project).
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
     """
-    project = project or store.detect_project(os.getcwd()) or "global"
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
     got = store.read_desk(slug or None, project)
     if got is None:
         return json.dumps({"desks": store.list_desks(project),
@@ -1216,7 +1227,7 @@ def desk_read(slug: str = "", project: str | None = None) -> str:
 @tool()
 def desk_log(slug: str = "", done: str = "", note: str = "",
              open_question: str = "", add: list[str] | None = None,
-             project: str | None = None) -> str:
+             cwd: str = "", project: str | None = None) -> str:
     """Use this after every attempt on a desk: tick the step that landed, and
     write down what failed and why.
 
@@ -1229,8 +1240,12 @@ def desk_log(slug: str = "", done: str = "", note: str = "",
         note: what happened, especially when it did not work.
         open_question: something unresolved that is not a step.
         add: steps discovered along the way.
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
     """
-    project = project or store.detect_project(os.getcwd()) or "global"
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
     return json.dumps(store.log_desk(slug or None, project, done or None,
                                      note or None, open_question or None,
                                      add or None), indent=2)

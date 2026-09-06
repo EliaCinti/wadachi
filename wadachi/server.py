@@ -491,8 +491,17 @@ def _desk_block(project: str | None, budget: int) -> str:
     viene tagliato di netto piuttosto che sforare.
     """
     def cap(s: str) -> str:
-        """Rete di sicurezza: se anche la forma degradata sfora, taglia netto."""
-        return s if _est_tokens(s) <= budget else s[: max(budget * 4, 0)]
+        """Rete di sicurezza: se anche la forma degradata sfora, taglia netto.
+
+        Un taglio cieco può cadere a metà di uno slug — ed è proprio lo slug
+        che il lettore incolla in desk_read(slug): fallirebbe in silenzio
+        ("scrivania non trovata") invece che in modo palese. Un'ellissi alla
+        fine rende il taglio visibile: una stringa tagliata non si spaccia
+        mai per una intera.
+        """
+        if _est_tokens(s) <= budget:
+            return s
+        return s[: max(budget * 4 - 1, 0)].rstrip() + "…"
 
     open_ones = store.list_desks(project=project, status="open")
     if not open_ones:

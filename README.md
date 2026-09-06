@@ -68,8 +68,9 @@ with two different lifetimes:
   everything described below: memories, decisions, beliefs, the graph, sleep. **Built.**
 - **The desk** — what you are *doing*. Survives the end of a **context window**: the plan
   for the task in flight, the steps already done, where the thread was dropped.
-  **On the roadmap** — today that state is either lost to compaction or written out by
-  hand as a handover note.
+  **Built.** `desk` opens one, `desk_log` records each attempt — especially the
+  failures — and `desk_read` (or `get_context`, which surfaces it automatically)
+  picks the work back up in a session that knows nothing.
 
 And the boundary that keeps the two projects honest: **Wadachi never executes anything,
 and never decides when something starts.** No runner, no sandbox, no scheduler — those
@@ -372,9 +373,6 @@ Semantic search runs entirely on your machine — no API calls, no cloud, no cos
 
 ## Roadmap
 
-- [ ] **The desk** — durable working state for the task in flight (plan, steps done,
-      where the thread was dropped), so an agent resumes exactly where it stopped
-      instead of compacting or handing over by hand
 - [ ] Auto-summarize old memories to reduce token usage
 - [ ] Memory importance decay (surface recent and frequently-accessed memories first)
 - [ ] Claude Code hooks for automatic context injection + brain backup on session stop

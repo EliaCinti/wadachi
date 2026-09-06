@@ -65,3 +65,15 @@ def test_many_long_titled_desks_still_respect_the_budget(srv, tmp_path):
     out = srv.get_context(cwd=str(tmp_path), task_description="", max_tokens=max_tokens)
     assert srv._est_tokens(out) <= max_tokens, "più scrivanie non devono sforare il budget"
     assert "🖿" in out, "il blocco scrivanie deve restare presente, anche degradato"
+
+
+def test_a_pathological_budget_never_lets_a_slug_look_whole(srv, tmp_path):
+    """cap() può tagliare uno slug a metà — è proprio quello che si incolla in
+    desk_read(slug). Il taglio deve dirlo, non nasconderlo."""
+    long_title = ("Un titolo pensato apposta per produrre uno slug lunghissimo "
+                  "che nessun budget patologico può contenere per intero")
+    srv.store.open_desk(long_title, "obiettivo", "fatto quando è fatto",
+                        ["passo"], project="p")
+    out = srv._desk_block("p", 10)
+    assert out, "il blocco non deve sparire, nemmeno tagliato"
+    assert out.endswith("…"), "una stringa tagliata non deve sembrare una intera"

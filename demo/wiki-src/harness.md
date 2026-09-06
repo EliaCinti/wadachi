@@ -43,7 +43,7 @@ thing:
 | | keeps | survives | status |
 |---|---|---|---|
 | **The hippocampus** | what you *learned* | the end of a **session** | built — most of this wiki |
-| **The desk** | what you are *doing* | the end of a **context window** | on the roadmap |
+| **The desk** | what you are *doing* | the end of a **context window** | built |
 
 ### The hippocampus — built
 
@@ -55,13 +55,23 @@ new session know what the last one figured out.
 [[get-context]] is the resume step for this layer: one call at the start of a session,
 and the knowledge is back without re-deriving it.
 
-### The desk — not built yet
+### The desk — built
 
 The working half: the plan for the task in flight, the steps already done, what was
-tried and failed, where the thread was dropped. Today, when a session gets too long,
-that state is either lost to compaction or written out by hand as a handover note.
-The desk is the roadmap item that makes the harness's step-by-step resume real for
-*work in progress*, not just for knowledge. Until it ships, this page says so plainly.
+tried and failed, where the thread was dropped. Three tools carry it. `desk` opens one
+— a title, an objective, and a `done_when` that says how to recognise the finish,
+because a desk without a stopping condition is a diary, not a desk. `desk_log` records
+each attempt, especially the failures: it ticks off the step that landed and writes
+down what did not work, then hands back the next unfinished step — which is also how
+you ask "what now?". `desk_read` picks the thread back up in a session that knows
+nothing, and [[get-context]] surfaces it automatically, above the memories and within
+its own budget, so resuming needs no extra call at all.
+
+A desk lives as one markdown file, `<brain>/desks/<project>/<slug>.md` — plain text,
+the same discipline as [[memories]]. Closing it moves the file to
+`<brain>/desks/<project>/archived/<slug>.md`, and only when there is a lesson worth
+keeping does it distil into a single linked memory. The plan, the attempts, the
+failures along the way — the working noise — never enters recall.
 
 ## Why the two must not be merged
 

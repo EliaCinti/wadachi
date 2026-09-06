@@ -170,7 +170,7 @@ thing:</p>
 <td><strong>The desk</strong></td>
 <td>what you are <em>doing</em></td>
 <td>the end of a <strong>context window</strong></td>
-<td>on the roadmap</td>
+<td>built</td>
 </tr>
 </tbody>
 </table></div>
@@ -181,12 +181,21 @@ typed <a class="wl" href="graph.html">The typed knowledge graph</a> that connect
 new session know what the last one figured out.</p>
 <p><a class="wl" href="get-context.html">get_context — start here, every session</a> is the resume step for this layer: one call at the start of a session,
 and the knowledge is back without re-deriving it.</p>
-<h3>The desk — not built yet</h3>
+<h3>The desk — built</h3>
 <p>The working half: the plan for the task in flight, the steps already done, what was
-tried and failed, where the thread was dropped. Today, when a session gets too long,
-that state is either lost to compaction or written out by hand as a handover note.
-The desk is the roadmap item that makes the harness's step-by-step resume real for
-<em>work in progress</em>, not just for knowledge. Until it ships, this page says so plainly.</p>
+tried and failed, where the thread was dropped. Three tools carry it. <code>desk</code> opens one
+— a title, an objective, and a <code>done_when</code> that says how to recognise the finish,
+because a desk without a stopping condition is a diary, not a desk. <code>desk_log</code> records
+each attempt, especially the failures: it ticks off the step that landed and writes
+down what did not work, then hands back the next unfinished step — which is also how
+you ask "what now?". <code>desk_read</code> picks the thread back up in a session that knows
+nothing, and <a class="wl" href="get-context.html">get_context — start here, every session</a> surfaces it automatically, above the memories and within
+its own budget, so resuming needs no extra call at all.</p>
+<p>A desk lives as one markdown file, <code>&lt;brain&gt;/desks/&lt;project&gt;/&lt;slug&gt;.md</code> — plain text,
+the same discipline as <a class="wl" href="memories.html">Memories</a>. Closing it moves the file to
+<code>&lt;brain&gt;/desks/&lt;project&gt;/archived/&lt;slug&gt;.md</code>, and only when there is a lesson worth
+keeping does it distil into a single linked memory. The plan, the attempts, the
+failures along the way — the working noise — never enters recall.</p>
 <h2>Why the two must not be merged</h2>
 <p>Different lifetimes. What you learned should outlive everything; what you are doing
 right now should be distilled or discarded when the task closes. Tip the desk into

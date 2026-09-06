@@ -5,6 +5,31 @@ Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — `.wadachi`, il file che dichiara a quale progetto appartiene una cartella
+
+Il rilevamento dal percorso è un'inferenza, e ogni inferenza ha un caso limite:
+una cartella non registrata, un progetto spostato su un altro disco, due lavori
+nella stessa directory. Un file `.wadachi` che contiene `project: nome` toglie
+di mezzo la deduzione — è una dichiarazione, e vince su tutto.
+
+Si risale come fa `.git`, quindi funziona da qualunque sottodirectory, e fra due
+marcatori vince il più vicino. Uno vuoto o illeggibile non rompe niente: si
+ricade sui percorsi registrati. Un `.wadachi` che è una *directory* non è un
+marcatore — è un brain.
+
+### Fixed — un brain che manca viene detto, non inventato
+
+`MemoryStore` faceva `mkdir(parents=True, exist_ok=True)` su qualunque percorso,
+compreso quello di default. Così nascono due brain sulla stessa macchina: uno
+vero da qualche parte, e uno vuoto che sembra funzionare — successo silenzioso,
+la peggiore specie di errore.
+
+La regola ora è che **chiedere una directory è un'intenzione, cadere su un
+default è un incidente**: un percorso esplicito o `BRAIN_DIR` viene creato come
+sempre, mentre un default mancante solleva `BrainNotFound` con la frase che dice
+cosa fare (`BRAIN_DIR=…` oppure `wadachi init`). `wadachi init` chiede la
+creazione esplicitamente e continua a funzionare su una macchina pulita.
+
 ### Fixed — due dei sette progetti non erano rilevabili, e nessuno lo diceva
 
 `detect_project` confrontava percorsi con `str.startswith` e restituiva la prima

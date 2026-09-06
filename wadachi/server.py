@@ -66,11 +66,58 @@ def _instrumented(fn):
     return wrapper
 
 
-def tool(*dargs, **dkwargs):
-    """Come @mcp.tool(), ma con logging trasparente."""
+# ── Toolset: quali strumenti stanno in menù ───────────────────
+#
+# Misurato su 741 trascrizioni (D40): 19 strumenti su 33 non erano mai stati
+# chiamati. Classificati per *momento d'uso* invece che per funzione, quelli di
+# manutenzione erano 1 usato su 11 — non perché descritti male, ma perché
+# chiedono il momento in cui ci si siede a curare il brain, che dentro una
+# sessione di lavoro non arriva mai. Sono in menù al pasto sbagliato.
+#
+# La ricerca 2026 misura la scelta dello strumento degradare da >90% con pochi
+# strumenti a ~13% con molti, con la soglia intorno ai 20-25. Il pattern è
+# quello dei *toolsets* del GitHub MCP Server: gruppi abilitabili, non tutto
+# sempre. Qui il gruppo `maintenance` resta invocabile — dal CLI (`wadachi
+# sleep`) e attraverso il manuale — ma non occupa contesto in ogni sessione.
+
+WORK = "work"              # mentre si lavora: in menù
+MAINTENANCE = "maintenance"  # il rituale di cura del brain: fuori menù
+
+_TOOLSETS: dict[str, str] = {}   # nome dello strumento → toolset
+_EXPOSED: list[str] = []          # nomi effettivamente registrati su MCP
+
+_ENABLED = {
+    t.strip()
+    for t in os.environ.get("WADACHI_TOOLSETS", WORK).split(",")
+    if t.strip()
+}
+
+
+def tool(*dargs, toolset: str = WORK, **dkwargs):
+    """Come @mcp.tool(), ma con logging trasparente e un toolset.
+
+    Uno strumento fuori dai toolset attivi resta una funzione normale del
+    modulo — chiamabile dal CLI, dai test e dal manuale — semplicemente non
+    viene registrato su MCP, quindi non costa contesto.
+    """
     def deco(fn):
-        return mcp.tool(*dargs, **dkwargs)(_instrumented(fn))
+        _TOOLSETS[fn.__name__] = toolset
+        wrapped = _instrumented(fn)
+        if toolset in _ENABLED:
+            _EXPOSED.append(fn.__name__)
+            return mcp.tool(*dargs, **dkwargs)(wrapped)
+        return wrapped
     return deco
+
+
+def exposed_tool_names() -> list[str]:
+    """I nomi degli strumenti effettivamente in menù, in ordine di registrazione."""
+    return list(_EXPOSED)
+
+
+def tools_in(toolset: str) -> list[str]:
+    """I nomi degli strumenti di un toolset, esposti o no."""
+    return [n for n, t in _TOOLSETS.items() if t == toolset]
 
 mcp = FastMCP(
     "wadachi",
@@ -175,7 +222,7 @@ def store_memory(
     category: str = "note",
     since_watermark: dict | None = None,
 ) -> str:
-    """Store knowledge in the Brain for future sessions.
+    """Use this the moment you figure something out — a bug, a config quirk, a pattern — so the next session starts knowing it.
 
     Args:
         content: The information to remember (markdown supported).
@@ -244,7 +291,7 @@ def recall(
 
 @tool()
 def get_memory(memory_id: int) -> str:
-    """Retrieve the full content of a specific memory by its ID.
+    """Use this when you already have a memory id and want everything it says.
 
     Args:
         memory_id: The numeric ID of the memory to retrieve.
@@ -260,7 +307,7 @@ def list_memories(
     project: str | None = None,
     category: str | None = None,
 ) -> str:
-    """List all memories in the Brain, optionally filtered.
+    """Use this to browse what a project holds when you do not have a query to search for.
 
     Args:
         project: Filter by project name.
@@ -276,7 +323,7 @@ def update_memory(
     content: str | None = None,
     tags: list[str] | None = None,
 ) -> str:
-    """Update an existing memory's content or tags.
+    """Use this when something you already stored turns out to be incomplete or wrong. Prior versions are kept.
 
     Args:
         memory_id: The numeric ID of the memory to update.
@@ -291,7 +338,7 @@ def update_memory(
 
 @tool()
 def delete_memory(memory_id: int) -> str:
-    """Permanently delete a memory from the Brain.
+    """Use this only when a memory was a mistake. If it is merely outdated, flag_stale keeps it recoverable.
 
     Args:
         memory_id: The numeric ID of the memory to delete.
@@ -314,7 +361,7 @@ def store_decision(
     project: str = "global",
     since_watermark: dict | None = None,
 ) -> str:
-    """Log a decision for future reference. Invaluable for understanding past choices.
+    """Use this whenever you choose between real alternatives, so a future session sees the reasoning instead of re-debating it.
 
     Args:
         decision: What was decided.
@@ -342,7 +389,7 @@ def list_decisions(
     project: str | None = None,
     limit: int = 20,
 ) -> str:
-    """List recent decisions, optionally filtered by project.
+    """Use this before making a call that feels familiar — the choice may already have been made and argued.
 
     Args:
         project: Filter by project name.
@@ -361,7 +408,7 @@ def register_project(
     description: str = "",
     paths: list[str] | None = None,
 ) -> str:
-    """Register a project so the Brain can auto-detect it from the working directory.
+    """Use this once per project, so later sessions detect it from the working directory and memories land in the right scope.
 
     Args:
         name: Short project identifier (e.g. 'feynotes', 'laplacebo').
@@ -374,7 +421,7 @@ def register_project(
 
 @tool()
 def list_projects() -> str:
-    """List all registered projects."""
+    """Use this when you need to know which project names exist before scoping a memory."""
     results = store.list_projects()
     return json.dumps({"projects": results, "count": len(results)}, indent=2)
 
@@ -555,7 +602,7 @@ def get_context(
 
 @tool()
 def expand_memory(ids: list[int]) -> str:
-    """Drill-down dal contesto compatto: il contenuto COMPLETO di una o più memorie.
+    """Use this right after get_context, when a one-line pointer looks relevant and you want the whole memory.
 
     Args:
         ids: Gli id (max 10) presi dai puntatori #id di get_context/recall.
@@ -572,7 +619,7 @@ def expand_memory(ids: list[int]) -> str:
 
 @tool()
 def brain_status() -> str:
-    """Check Brain health and statistics."""
+    """Use this when something looks wrong — nothing recalled, a project missing — to see what the brain actually holds."""
     stats = store.stats()
     return json.dumps({
         "brain_dir": str(store.brain_dir),
@@ -600,7 +647,7 @@ def _assoc_graph(project: str | None) -> MemoryGraph:
 
 @tool()
 def recall_associative(query: str, project: str | None = None, limit: int = 5) -> str:
-    """Spreading-activation recall over the memory graph (HippoRAG-style).
+    """Use this when recall comes back thin and you suspect there is a connected memory that simply does not share its words.
 
     Unlike `recall` (pure cosine top-k), this seeds the query's best matches and
     propagates activation along citation, semantic, and shared-entity edges, so
@@ -627,7 +674,7 @@ def recall_associative(query: str, project: str | None = None, limit: int = 5) -
 
 @tool()
 def related_memories(memory_id: int, limit: int = 8) -> str:
-    """Show the memories most strongly linked to a given one (typed neighbours).
+    """Use this when one memory turned out to matter and you want the rest of its story.
 
     Args:
         memory_id: The memory to expand from.
@@ -640,7 +687,7 @@ def related_memories(memory_id: int, limit: int = 8) -> str:
 @tool()
 def memory_graph(project: str | None = None, focus_id: int | None = None,
                  include_entities: bool = True) -> str:
-    """Overview of the brain as a graph: hubs, orphans, components, a Mermaid
+    """Use this when you want to see the shape of what the brain holds — what is central, what is isolated — rather than search it. Hubs, orphans, components, a Mermaid
     diagram of the citation backbone, and (if built) the Graphify entity graph
     with communities, god-nodes and surprising connections.
 
@@ -657,7 +704,7 @@ def memory_graph(project: str | None = None, focus_id: int | None = None,
     return json.dumps(out, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def rebuild_entity_graph(project: str | None = None) -> str:
     """(Re)build the Graphify entity knowledge graph over the brain.
 
@@ -670,7 +717,7 @@ def rebuild_entity_graph(project: str | None = None) -> str:
 
 @tool()
 def memory_history(memory_id: int) -> str:
-    """Show prior versions of a memory (preserved on every update — non-destructive).
+    """Use this when a memory says something different from what you remember, to see what it used to say and when it changed.
 
     Args:
         memory_id: The memory whose edit history to retrieve.
@@ -700,7 +747,7 @@ def _annotate_beliefs(results: list[dict]) -> list[dict]:
     return out
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def review_beliefs(project: str | None = None) -> str:
     """Scan the brain for memories that have likely gone stale and need review:
     superseded by a newer memory, past a temporal deadline, conditional/provisional,
@@ -713,7 +760,7 @@ def review_beliefs(project: str | None = None) -> str:
     return json.dumps({"flagged": flagged, "count": len(flagged)}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def set_belief(memory_id: int, confidence: float | None = None, status: str | None = None,
                valid_until: str | None = None, review_reason: str | None = None,
                superseded_by: int | None = None) -> str:
@@ -734,7 +781,7 @@ def set_belief(memory_id: int, confidence: float | None = None, status: str | No
 
 @tool()
 def flag_stale(memory_id: int, reason: str, superseded_by: int | None = None) -> str:
-    """Mark a memory as stale: kept and recoverable, but annotated in recall.
+    """Use this when a memory is no longer true but was not a mistake — it stays readable and starts warning whoever recalls it.
 
     Args:
         memory_id: The memory to flag.
@@ -748,7 +795,7 @@ def flag_stale(memory_id: int, reason: str, superseded_by: int | None = None) ->
 # ── Reflection & procedural (Phase 3) ────────────────────────
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def reflect(project: str | None = None, limit: int = 15, store_them: bool = True) -> str:
     """Think across memories: surface cross-project analogies and non-obvious
     connections that recall cannot reach (reuses the Graphify graph — no extra LLM
@@ -765,14 +812,14 @@ def reflect(project: str | None = None, limit: int = 15, store_them: bool = True
     return json.dumps({"candidates": cands, "stored": len(saved), "count": len(cands)}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def list_insights(status: str | None = "proposed") -> str:
     """List reflection insights, optionally by status (proposed | accepted | rejected)."""
     items = store.list_insights(status=status)
     return json.dumps({"insights": items, "count": len(items)}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def accept_insight(insight_id: int, project: str = "global") -> str:
     """Accept an insight: mark it accepted and promote it to a real memory linked
     to its source memories.
@@ -793,7 +840,7 @@ def accept_insight(insight_id: int, project: str = "global") -> str:
     return json.dumps({"status": "accepted", "insight_id": insight_id, "memory": mem}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def reject_insight(insight_id: int) -> str:
     """Reject an insight (kept on record, marked rejected).
 
@@ -809,7 +856,7 @@ def reject_insight(insight_id: int) -> str:
 
 @tool()
 def why(question: str, project: str | None = None, limit: int = 2) -> str:
-    """Interrogate decision provenance: WHY are things the way they are?
+    """Use this when you are about to change something and want to know why it is the way it is before touching it.
 
     Ask "why do we use X and not Y?" — returns the matching decision(s) with
     rationale, the rejected alternatives, the context, plus the memories that
@@ -854,7 +901,7 @@ def why(question: str, project: str | None = None, limit: int = 2) -> str:
 @tool()
 def as_of(date: str, query: str | None = None, project: str | None = None,
           limit: int = 15) -> str:
-    """Time-travel: what did the brain believe at a given date?
+    """Use this when reconstructing a past decision: what the brain knew on that date, without today's hindsight mixed in.
 
     Memories that existed then, with their content AS IT WAS (reconstructed from
     the non-destructive version history), and which of them were already
@@ -901,7 +948,7 @@ def as_of(date: str, query: str | None = None, project: str | None = None,
     return json.dumps({"as_of": date, "memories": out, "count": len(out)}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def sleep(project: str | None = None, min_similarity: float = 0.78) -> str:
     """The brain's "sleep": walk the graph and PROPOSE housekeeping (read-only).
 
@@ -994,7 +1041,7 @@ def sleep(project: str | None = None, min_similarity: float = 0.78) -> str:
 # ── Consolidamento (Fase 4.15) ───────────────────────────────
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def consolidate(project: str | None = None, threshold: float = 0.86, max_groups: int = 8) -> str:
     """Propose groups of redundant/overlapping memories to merge (READ-ONLY).
 
@@ -1062,7 +1109,7 @@ def consolidate(project: str | None = None, threshold: float = 0.86, max_groups:
     }, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def merge_memories(source_ids: list[int], title: str, content: str,
                    project: str = "global", tags: list[str] | None = None) -> str:
     """Merge redundant memories: store the synthesis as a NEW memory and mark
@@ -1094,7 +1141,7 @@ def merge_memories(source_ids: list[int], title: str, content: str,
                        "superseded": source_ids}, indent=2)
 
 
-@tool()
+@tool(toolset=MAINTENANCE)
 def review_procedures(project: str | None = None) -> str:
     """Find recurring-incident clusters and propose always-on rules for review.
     Read-only — never edits your operating instructions.
@@ -1104,6 +1151,62 @@ def review_procedures(project: str | None = None) -> str:
     """
     rules = ProceduralReviewer(store).review(project=project)
     return json.dumps({"candidate_rules": rules, "count": len(rules)}, indent=2)
+
+
+# ── Il manuale: «tipo man», su richiesta e non in ogni sessione ──
+#
+# Progressive disclosure (guida MCP client best practices): la descrizione
+# corta dice cosa fa e quando, sempre in contesto; il resto vive qui e si legge
+# solo quando serve. Generato dal codice, così non può andare fuori sincrono
+# con gli strumenti che descrive.
+
+
+def _manual_text() -> str:
+    lines = [
+        "# wadachi — manuale degli strumenti",
+        "",
+        "Le descrizioni brevi degli strumenti dicono *quando* usarli. Questo è il",
+        "resto: cosa fa ciascuno per intero, e cosa esiste fuori dal menù.",
+        "",
+        f"## In menù ({len(_EXPOSED)} strumenti — mentre si lavora)",
+        "",
+    ]
+    for name in _EXPOSED:
+        fn = globals().get(name)
+        doc = (fn.__doc__ or "").strip() if fn else ""
+        lines.append(f"### `{name}`")
+        lines.append(doc or "_(nessuna descrizione)_")
+        lines.append("")
+
+    hidden = tools_in(MAINTENANCE)
+    lines += [
+        f"## Fuori menù ({len(hidden)} strumenti — la cura del brain)",
+        "",
+        "Questi non sono in menù per scelta: chiedono il momento in cui ci si siede",
+        "a curare il brain, non quello in cui si lavora. Misurato su 741 sessioni,",
+        "venivano scelti una volta in tutto — e costavano contesto in ognuna.",
+        "",
+        "Restano raggiungibili in due modi:",
+        "",
+        "- dal **CLI**: `wadachi sleep`, `wadachi doctor`, `wadachi obsidian`;",
+        "- riattivandoli per una sessione con `WADACHI_TOOLSETS=work,maintenance`.",
+        "",
+    ]
+    for name in hidden:
+        fn = globals().get(name)
+        doc = (fn.__doc__ or "").strip() if fn else ""
+        first = doc.split("\n")[0] if doc else "_(nessuna descrizione)_"
+        lines.append(f"- **`{name}`** — {first}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+@tool()
+def manual() -> str:
+    """Use this when you want the full description of a tool, or to find out what
+    exists beyond the tools listed here — the brain-maintenance ones live outside
+    the menu on purpose, and this is where they are documented."""
+    return _manual_text()
 
 
 # ── Entry point ───────────────────────────────────────────────

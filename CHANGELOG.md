@@ -5,6 +5,43 @@ Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — il menù degli strumenti: 23 invece di 33, e le descrizioni dicono *quando*
+
+Contate le invocazioni su **741 trascrizioni** di sessioni reali: **19 strumenti su 33
+non erano mai stati chiamati**. Non è un dettaglio estetico — la ricerca 2026 misura
+l'accuratezza nella scelta dello strumento passare da oltre il 90% con pochi strumenti a
+circa il **13%** con molti, con la soglia intorno ai 20-25. Trentatré è oltre, e costava
+~3.400 token di descrizioni in **ogni** sessione.
+
+Ma la causa non era una sola, e questo cambia il rimedio. Classificando per **momento
+d'uso** invece che per funzione: gli strumenti *del lavoro* erano 13 usati su 22 con 180
+chiamate; quelli di *manutenzione* 1 su 11, con **una chiamata in tutto**.
+
+**Gli undici della manutenzione escono dal menù** (`sleep`, `consolidate`,
+`merge_memories`, `reflect`, `review_beliefs`, `set_belief`, `review_procedures`, gli
+insight, `rebuild_entity_graph`). Non erano descritti male: chiedono il momento in cui ci
+si siede a curare il brain, che dentro una sessione di lavoro non arriva mai — erano in
+menù al pasto sbagliato. Restano **invocabili**: dal CLI (`wadachi sleep`), e riattivabili
+per una sessione con `WADACHI_TOOLSETS=work,maintenance`. È il pattern *toolsets* del
+GitHub MCP Server.
+
+**Le diciotto descrizioni che dicevano l'implementazione ora dicono la situazione.**
+L'unico strumento di ricerca che veniva scelto era l'unico la cui prima riga conteneva un
+momento — «use this to find relevant memories before starting work» — mentre gli altri
+aprivano con HippoRAG e la spreading activation, che al momento della scelta non servono a
+nulla. Ora `recall_associative` dice «quando `recall` torna scarno e sospetti che ci sia
+una memoria collegata che semplicemente non ne condivide le parole».
+
+### Added — `manual`, il «tipo man» degli strumenti
+
+Una descrizione breve sempre in contesto, il resto su richiesta: `manual()` restituisce la
+descrizione completa di ogni strumento in menù **e** di quelli fuori, con i due modi per
+raggiungerli. Generato dal codice, quindi non può andare fuori sincrono con ciò che
+descrive.
+
+**Risultato: 23 strumenti in menù invece di 33, e ~1.340 token in meno in ogni sessione.**
+
+
 ### Added — `.wadachi`, il file che dichiara a quale progetto appartiene una cartella
 
 Il rilevamento dal percorso è un'inferenza, e ogni inferenza ha un caso limite:

@@ -38,6 +38,29 @@ def render_desk(meta: dict, objective: str, done_when: str, plan: list[str]) -> 
     )
 
 
+def set_meta(text: str, key: str, value: str) -> str:
+    """Aggiorna una chiave del frontmatter sul posto.
+
+    Cerca solo fra le due righe `---` iniziali — mai nel corpo, dove una nota
+    o una riga di registro potrebbe iniziare per caso con `chiave: `. Una
+    chiave assente lascia il testo invariato; il valore è inserito così
+    com'è, senza passare da una sostituzione con espressioni regolari (che
+    interpreterebbe `\\1`, `\\g<0>` eccetera dentro il valore)."""
+    lines = text.split("\n")
+    if not lines or lines[0] != "---":
+        return text
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return text
+    prefix = f"{key}: "
+    for i in range(1, end):
+        if lines[i].startswith(prefix):
+            lines[i] = f"{key}: {value}"
+            return "\n".join(lines)
+    return text
+
+
 def _section(text: str, heading: str) -> tuple[int, int]:
     """Gli indici di riga [inizio, fine) del corpo di una sezione."""
     lines = text.split("\n")

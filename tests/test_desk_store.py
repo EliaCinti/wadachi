@@ -1,5 +1,9 @@
 """La scrivania nello store: ciclo di vita, ripresa, confine con le memorie."""
 
+import random
+import threading
+import time
+
 import pytest
 
 from wadachi.store import MemoryStore
@@ -60,8 +64,14 @@ def test_ticking_a_step_already_done_says_so(s):
     assert out["next_step"] == "estrarre"
 
 
-def test_two_notes_do_not_overwrite_each_other(s, tmp_path):
-    """Due sessioni che annotano: entrambe le righe restano."""
+def test_two_sequential_sessions_reading_back_both_see_both_notes(s, tmp_path):
+    """Due sessioni che annotano una dopo l'altra: nessuna sovrascrive l'altra.
+
+    Le due scritture qui sono in sequenza (la prima commit-a e chiude prima
+    che la seconda cominci) — prova solo che due `MemoryStore` diversi
+    rileggono lo stesso file dal disco, non che le scritture in corsa sono
+    serializzate. Per quella vedi
+    `test_concurrent_notes_from_many_threads_are_all_preserved` sotto."""
     d = _open(s)
     other = MemoryStore(str(tmp_path / "brain"))
     s.log_desk(project="overmind", note="dalla prima sessione")
@@ -69,6 +79,42 @@ def test_two_notes_do_not_overwrite_each_other(s, tmp_path):
     text = s.read_desk(d["slug"], project="overmind")["text"]
     assert "dalla prima sessione" in text
     assert "dalla seconda sessione" in text
+
+
+def test_concurrent_notes_from_many_threads_are_all_preserved(s, tmp_path):
+    """Il test che conta davvero: scritture in corsa, non in sequenza.
+
+    Sei thread — ciascuno con il proprio `MemoryStore` sullo stesso brain,
+    come sei sessioni MCP separate — annotano la stessa scrivania quasi nello
+    stesso istante. Se `_write()` (BEGIN IMMEDIATE) non serializzasse
+    davvero le scritture sul file, l'ultima a fare `_atomic_write_text`
+    vincerebbe e le note delle altre sparirebbero. Una breve pausa casuale
+    prima della chiamata incoraggia la sovrapposizione."""
+    d = _open(s)
+    n = 6
+    notes = [f"nota concorrente numero {i}" for i in range(n)]
+    errors: list[BaseException] = []
+
+    def worker(note: str) -> None:
+        try:
+            time.sleep(random.uniform(0, 0.05))
+            store = MemoryStore(str(tmp_path / "brain"))
+            store.log_desk(project="overmind", note=note)
+        except BaseException as exc:  # captured, not raised, from a thread
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(note,)) for note in notes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads), "un thread non è mai tornato (lock timeout?)"
+    assert not errors, f"scritture concorrenti fallite: {errors!r}"
+
+    text = s.read_desk(d["slug"], project="overmind")["text"]
+    missing = [note for note in notes if note not in text]
+    assert not missing, f"note perse in scrittura concorrente: {missing}"
 
 
 def test_a_desk_never_appears_in_recall(s):

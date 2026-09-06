@@ -986,7 +986,7 @@ class MemoryStore:
             if add:
                 text = D.add_steps(text, add)
             now = _utcnow()
-            text = re.sub(r"^updated: .*$", f"updated: {now}", text, count=1, flags=re.M)
+            text = D.set_meta(text, "updated", now)
             _atomic_write_text(path, text)
             conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
                          (now, row["slug"], row["project"]))
@@ -996,6 +996,7 @@ class MemoryStore:
     def close_desk(self, slug: str, outcome: str, project: str | None = None,
                    distil: str | None = None) -> dict:
         """Chiude e archivia. Con `distil`, ne nasce UNA memoria collegata."""
+        from . import desk as D
         project = project or "global"
         memory_id = None
         with self._write() as conn:
@@ -1007,14 +1008,26 @@ class MemoryStore:
             dst = self._desk_path(project, slug, archived=True)
             dst.parent.mkdir(parents=True, exist_ok=True)
             text = src.read_text(encoding="utf-8")
-            text = re.sub(r"^status: .*$", f"status: {outcome}", text, count=1, flags=re.M)
+            text = D.set_meta(text, "status", outcome)
             _atomic_write_text(dst, text)
-            src.unlink(missing_ok=True)
             rel = f"desks/{project}/archived/{slug}.md"
-            conn.execute(
-                "UPDATE desks SET status = ?, filepath = ?, updated_at = ? "
-                "WHERE slug = ? AND project = ?",
-                (outcome, rel, _utcnow(), slug, project))
+            # The index row is updated to point at the archived copy *before*
+            # the original is unlinked. If the UPDATE raises, the archived
+            # copy — new and not yet referenced by anything — is removed
+            # again so it doesn't become an orphan, and the source is left
+            # untouched: same discipline as store_memory's file/row
+            # compensation above. Only once the row safely points at `dst`
+            # is `src` removed, so a crash can never leave the index
+            # pointing at a file that no longer exists.
+            try:
+                conn.execute(
+                    "UPDATE desks SET status = ?, filepath = ?, updated_at = ? "
+                    "WHERE slug = ? AND project = ?",
+                    (outcome, rel, _utcnow(), slug, project))
+            except BaseException:
+                dst.unlink(missing_ok=True)
+                raise
+            src.unlink(missing_ok=True)
         if distil:
             m = self.store_memory(
                 content=f"{distil}\n\nDalla scrivania [[{slug}]] ({outcome}).",

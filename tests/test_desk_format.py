@@ -3,7 +3,7 @@
 import pytest
 
 from wadachi.desk import (add_log, add_open, add_steps, desk_slug, next_step,
-                          parse_plan, render_desk, tick_step)
+                          parse_plan, render_desk, set_meta, tick_step)
 
 DESK = """---
 type: desk
@@ -121,3 +121,25 @@ def test_render_produces_a_file_the_parser_understands():
     assert text.startswith("---\n")
     assert next_step(text) == "uno"
     assert "**Fatto quando:** i test passano." in text
+
+
+def test_set_meta_replaces_an_existing_key():
+    out = set_meta(DESK, "slug", "y")
+    assert "\nslug: y\n" in out
+    assert "\nslug: x\n" not in out
+
+
+def test_set_meta_on_an_absent_key_leaves_the_text_unchanged():
+    out = set_meta(DESK, "status", "closed")
+    assert out == DESK
+
+
+def test_set_meta_inserts_regex_special_characters_literally():
+    """Un valore con `.`, `*`, `\\` non deve essere interpretato come regex.
+
+    Con `re.sub` questo valore nella stringa di sostituzione solleverebbe
+    `invalid group reference` (prova: `\\1`, `\\g<0>`) — `set_meta` non passa
+    mai dal motore delle espressioni regolari."""
+    value = r"a.b*c\1d\g<0>"
+    out = set_meta(DESK, "slug", value)
+    assert f"slug: {value}" in out

@@ -26,6 +26,7 @@ OUT = ROOT / "demo" / "wiki"
 # (slug, gruppo) in ordine di navigazione
 MANIFEST = [
     ("index",           "Start here"),
+    ("harness",         "Start here"),
     ("installation",    "Start here"),
     ("connect",         "Start here"),
     ("brain",           "The brain"),

@@ -127,3 +127,26 @@ def test_store_init_runs_migrations(tmp_path):
     conn = sqlite3.connect(s.db_path)
     assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == LATEST
     conn.close()
+
+
+def test_migration_0003_creates_the_desks_index(tmp_path):
+    from wadachi.store import MemoryStore
+    s = MemoryStore(str(tmp_path / "brain"))
+    with s._conn() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(desks)")}
+    assert cols == {"slug", "project", "title", "status",
+                    "created_at", "updated_at", "filepath"}
+
+
+def test_migration_0003_keys_a_desk_by_project_and_slug(tmp_path):
+    """Lo stesso slug in due progetti è legittimo; due volte nello stesso, no."""
+    import sqlite3
+    import pytest
+    from wadachi.store import MemoryStore
+    s = MemoryStore(str(tmp_path / "brain"))
+    with s._write() as conn:
+        conn.execute("INSERT INTO desks VALUES ('x','a','T','open','t','t','p')")
+        conn.execute("INSERT INTO desks VALUES ('x','b','T','open','t','t','p')")
+    with pytest.raises(sqlite3.IntegrityError):
+        with s._write() as conn:
+            conn.execute("INSERT INTO desks VALUES ('x','a','T','open','t','t','p')")

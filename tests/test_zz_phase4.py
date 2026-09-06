@@ -19,7 +19,7 @@ def j(out: str):
 def test_fresh_db_reaches_schema_v2(tmp_path):
     from wadachi.migrations import run_migrations
     applied = run_migrations(tmp_path / "brain.db")
-    assert applied == [1, 2]
+    assert applied == [1, 2, 3]
     conn = sqlite3.connect(tmp_path / "brain.db")
     cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
     assert {"access_count", "last_accessed"} <= cols
@@ -36,7 +36,7 @@ def test_v1_db_upgrades_to_v2_preserving_data(tmp_path, store):
     # il runner non riapplica migrazioni già registrate, quindi qui verifichiamo
     # il contratto inverso: schema_version dice v2 e i dati ci sono.
     v = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    assert v == 2
+    assert v == 3
     assert conn.execute("SELECT title FROM memories").fetchone()[0] == "Sopravvive"
     conn.close()
     assert store.get_memory(r["id"])["content"] == "dato prezioso"

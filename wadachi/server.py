@@ -27,6 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from wadachi import __version__
 from wadachi.log import setup as _log_setup
 from wadachi.store import MemoryStore
+from wadachi import desk as D
 from wadachi.search import SearchEngine
 from wadachi.graph import MemoryGraph
 from wadachi.entities import EntityGraph
@@ -503,6 +504,13 @@ def _desk_block(project: str | None, budget: int) -> str:
             return s
         return s[: max(budget * 4 - 1, 0)].rstrip() + "…"
 
+    if not project:
+        # Nessun progetto rilevato dalla cwd: `list_desks(None)` non filtra
+        # nulla e mostrerebbe scrivanie di progetti altrui — il §3 della
+        # spec è netto («nessuna → non dice niente»). Zero è la sola
+        # risposta onesta quando non sappiamo di quale progetto si tratti.
+        return ""
+
     open_ones = store.list_desks(project=project, status="open")
     if not open_ones:
         return ""
@@ -523,6 +531,14 @@ def _desk_block(project: str | None, budget: int) -> str:
     got = store.read_desk(open_ones[0]["slug"], project)
     if not got:
         return ""
+    if got.get("missing_file"):
+        # Il file dietro la riga indicizzata è sparito (cancellato a mano,
+        # per esempio in Obsidian — il progetto lo invita esplicitamente).
+        # read_desk ha già tolto la riga dall'indice: qui si dice la cosa
+        # onesta invece di sollevare un KeyError su `got["title"]`, che è
+        # esattamente il crash che bloccava get_context per l'intera sessione.
+        return cap(f"## 🖿 scrivania `{got['slug']}` — il file non c'è più, "
+                    f"rimossa dall'indice\n\n")
     title = _clip(got["title"], 80)
     next_step = _clip(got["next_step"] or "— piano finito, valuta di chiudere", 80)
     head = (f"## 🖿 scrivania aperta — `{got['slug']}`\n"
@@ -534,8 +550,8 @@ def _desk_block(project: str | None, budget: int) -> str:
         return cap(fallback)
 
     body = ""
-    for label, marker in (("Obiettivo", "## Obiettivo"), ("Registro", "## Registro")):
-        chunk = got["text"].split(marker)[1].split("\n##")[0].strip() if marker in got["text"] else ""
+    for label, marker in (("Obiettivo", D.OBJECTIVE), ("Registro", D.LOG)):
+        chunk = D.section_text(got["text"], marker)
         first = _clip(next((l for l in chunk.split("\n") if l.strip()), ""), 80)
         if first and _est_tokens(head + body + first) <= budget:
             body += f"{label}: {first}\n"

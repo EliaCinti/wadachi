@@ -36,7 +36,7 @@ al più UNA memoria — la lezione, se ce n'è una — scritta da chi ha fatto i
 mai dalla scrivania stessa. Piano, tentativi e rumore di lavorazione restano nel
 file archiviato, e basta.
 
-### Changed — il menù degli strumenti: 23 invece di 33, e le descrizioni dicono *quando*
+### Changed — il menù degli strumenti: 26 invece di 33, e le descrizioni dicono *quando*
 
 Contate le invocazioni su **741 trascrizioni** di sessioni reali: **19 strumenti su 33
 non erano mai stati chiamati**. Non è un dettaglio estetico — la ricerca 2026 misura
@@ -70,7 +70,8 @@ descrizione completa di ogni strumento in menù **e** di quelli fuori, con i due
 raggiungerli. Generato dal codice, quindi non può andare fuori sincrono con ciò che
 descrive.
 
-**Risultato: 23 strumenti in menù invece di 33, e ~1.340 token in meno in ogni sessione.**
+**Risultato: 26 strumenti in menù invece di 33 (23 dopo il taglio, tre tornati con i
+tool della scrivania sopra), e ~1.340 token in meno in ogni sessione.**
 
 
 ### Added — `.wadachi`, il file che dichiara a quale progetto appartiene una cartella

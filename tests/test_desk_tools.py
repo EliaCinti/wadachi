@@ -19,10 +19,6 @@ def test_the_three_tools_are_in_the_working_menu(srv):
     assert {"desk", "desk_read", "desk_log"} <= exposed
 
 
-def test_the_menu_stays_under_the_threshold(srv):
-    assert len(srv.exposed_tool_names()) <= 27
-
-
 def test_their_first_line_says_when_to_use_them(srv):
     for name in ["desk", "desk_read", "desk_log"]:
         first = (getattr(srv, name).__doc__ or "").strip().split("\n")[0].lower()

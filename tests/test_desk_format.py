@@ -2,8 +2,9 @@
 
 import pytest
 
-from wadachi.desk import (add_log, add_open, add_steps, desk_slug, next_step,
-                          parse_plan, render_desk, set_meta, tick_step)
+from wadachi.desk import (add_log, add_open, add_steps, desk_slug, done_when,
+                          next_step, parse_plan, render_desk, section_text,
+                          set_meta, tick_step)
 
 DESK = """---
 type: desk
@@ -54,8 +55,8 @@ def test_tick_step_respects_code_fences_in_the_plan():
         "- [ ] secondo",
         "- [ ] secondo\n```\n- [ ] finto, sono un esempio\n```",
     )
-    out, already = tick_step(trap, "finto, sono un esempio")
-    assert already is False
+    out, status = tick_step(trap, "finto, sono un esempio")
+    assert status == "not_found"
     assert out == trap
 
 
@@ -66,17 +67,31 @@ def test_only_the_plan_section_counts():
 
 
 def test_ticking_a_step_marks_only_that_line():
-    out, already = tick_step(DESK, "secondo")
-    assert already is False
+    out, status = tick_step(DESK, "secondo")
+    assert status == "ticked"
     assert "- [x] secondo" in out
     assert "- [ ] quarto" in out
     assert next_step(out) == "quarto"
 
 
 def test_ticking_an_already_ticked_step_says_so_and_changes_nothing():
-    out, already = tick_step(DESK, "primo")
-    assert already is True
+    out, status = tick_step(DESK, "primo")
+    assert status == "already"
     assert out == DESK
+
+
+def test_ticking_a_label_that_does_not_exist_says_so_and_changes_nothing():
+    """Un typo non deve avere la stessa forma di un successo (finding 3)."""
+    out, status = tick_step(DESK, "passo che non esiste")
+    assert status == "not_found"
+    assert out == DESK
+
+
+def test_ticking_strips_the_callers_label_before_matching():
+    """Il lato file è già spogliato; anche il lato chiamante deve esserlo."""
+    out, status = tick_step(DESK, "secondo ")
+    assert status == "ticked"
+    assert "- [x] secondo" in out
 
 
 def test_a_log_line_goes_on_top():
@@ -132,6 +147,39 @@ def test_set_meta_replaces_an_existing_key():
 def test_set_meta_on_an_absent_key_leaves_the_text_unchanged():
     out = set_meta(DESK, "status", "closed")
     assert out == DESK
+
+
+def test_section_text_reads_the_objective_body():
+    assert section_text(DESK, "## Obiettivo") == (
+        "Fare la cosa.\n**Fatto quando:** i test passano.")
+
+
+def test_section_text_is_empty_for_an_absent_heading():
+    assert section_text(DESK, "## Non c'è") == ""
+
+
+def test_section_text_does_not_stop_at_a_markdown_h3_inside_the_body():
+    """La crepa che il vecchio `split('\\n##')` aveva: una riga che comincia
+    per `###` (h3, contenuto legittimo) contiene comunque `\\n##` come
+    sottostringa, e quello split ci si sarebbe fermato — perdendo tutto ciò
+    che viene dopo, incluso il `Fatto quando`. `_section` guarda `## ` esatto,
+    non una sottostringa, quindi non ci casca."""
+    trap = DESK.replace(
+        "Fare la cosa.",
+        "Fare la cosa.\n### nota interna, non un titolo di sezione",
+    )
+    body = section_text(trap, "## Obiettivo")
+    assert "nota interna" in body
+    assert "Fatto quando" in body
+    assert done_when(trap) == "i test passano."
+
+
+def test_done_when_reads_the_stopping_condition():
+    assert done_when(DESK) == "i test passano."
+
+
+def test_done_when_is_none_without_an_objective_section():
+    assert done_when("nessuna sezione qui") is None
 
 
 def test_set_meta_inserts_regex_special_characters_literally():

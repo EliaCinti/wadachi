@@ -20,9 +20,11 @@ from .store import _slugify
 PLAN = "## Piano"
 LOG = "## Registro"
 OPEN = "## Aperto"
+OBJECTIVE = "## Obiettivo"
 
 _STEP = re.compile(r"^- \[( |x)\] (.+)$")
 _FENCE = re.compile(r"^\s*```")
+_DONE_WHEN = re.compile(r"^\*\*Fatto quando:\*\*\s*(.+)$")
 
 
 def render_desk(meta: dict, objective: str, done_when: str, plan: list[str]) -> str:
@@ -98,11 +100,43 @@ def next_step(text: str) -> str | None:
     return next((label for done, label in parse_plan(text) if not done), None)
 
 
-def tick_step(text: str, label: str) -> tuple[str, bool]:
-    """Spunta un passo. Restituisce `(testo, era_già_fatto)`."""
+def section_text(text: str, heading: str) -> str:
+    """Il corpo di una sezione, spogliato agli estremi.
+
+    Stringa vuota se la sezione non c'è. Il confine è una riga che inizia
+    per `## ` (via `_section`), non una sottostringa `\\n##` che potrebbe
+    comparire dentro il corpo — quella troncherebbe un registro che contiene
+    letteralmente `\\n##` da qualche parte, un caso reale trovato provando
+    il progetto."""
+    start, end = _section(text, heading)
+    if start < 0:
+        return ""
+    return "\n".join(text.split("\n")[start:end]).strip()
+
+
+def done_when(text: str) -> str | None:
+    """La condizione d'arresto dichiarata in `## Obiettivo`, o None se manca
+    o il file non la scrive nella forma attesa."""
+    for line in section_text(text, OBJECTIVE).split("\n"):
+        m = _DONE_WHEN.match(line.strip())
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def tick_step(text: str, label: str) -> tuple[str, str]:
+    """Spunta un passo. Restituisce `(testo, esito)`.
+
+    `esito` è uno tra `"ticked"` (spuntato ora), `"already"` (era già
+    spuntato, testo invariato) o `"not_found"` (nessuna etichetta corrisponde,
+    testo invariato) — un'etichetta sbagliata non deve avere la stessa forma
+    di un successo, altrimenti chi chiama non si accorge mai del typo.
+    L'etichetta del chiamante è spogliata prima del confronto, come lo è
+    già quella letta dal file."""
+    label = (label or "").strip()
     start, end = _section(text, PLAN)
     if start < 0:
-        return (text, False)
+        return (text, "not_found")
     lines = text.split("\n")
     in_fence = False
     for i in range(start, end):
@@ -114,10 +148,10 @@ def tick_step(text: str, label: str) -> tuple[str, bool]:
         m = _STEP.match(lines[i])
         if m and m.group(2).strip() == label:
             if m.group(1) == "x":
-                return (text, True)
+                return (text, "already")
             lines[i] = f"- [x] {label}"
-            return ("\n".join(lines), False)
-    return (text, False)
+            return ("\n".join(lines), "ticked")
+    return (text, "not_found")
 
 
 def add_log(text: str, line: str, when: str) -> str:

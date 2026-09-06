@@ -64,6 +64,58 @@ def test_ticking_a_step_already_done_says_so(s):
     assert out["next_step"] == "estrarre"
 
 
+def test_ticking_a_typo_says_so_instead_of_pretending_success(s):
+    """Un'etichetta sbagliata non deve avere la forma di una spunta riuscita
+    (finding 3): niente avanza, e il chiamante riceve i nomi veri."""
+    _open(s)
+    out = s.log_desk(project="overmind", done="passo che non esiste")
+    assert out["already_done"] is False
+    assert out["next_step"] == "leggere", "il cursore non deve muoversi su un typo"
+    assert "error" in out
+    assert out["known_steps"] == ["leggere", "estrarre", "verificare"]
+
+
+def test_ticking_strips_a_trailing_space_the_caller_left_on(s):
+    """Il lato file è già spogliato; il lato chiamante deve esserlo anche lui."""
+    _open(s)
+    out = s.log_desk(project="overmind", done="leggere ")
+    assert "error" not in out
+    assert out["next_step"] == "estrarre"
+
+
+def test_reading_a_desk_whose_file_was_deleted_does_not_crash(s):
+    """Finding 1: un file cancellato a mano (Obsidian, o `rm`) non deve far
+    esplodere read_desk — e la riga che lo rivendicava esce dall'indice."""
+    d = _open(s)
+    (s.brain_dir / d["filepath"]).unlink()
+    out = s.read_desk(d["slug"], project="overmind")
+    assert out is not None
+    assert out.get("missing_file") is True
+    assert "error" in out
+    assert d["slug"] not in [row["slug"] for row in s.list_desks(project="overmind", status=None)]
+
+
+def test_logging_to_a_desk_whose_file_was_deleted_does_not_crash(s):
+    d = _open(s)
+    (s.brain_dir / d["filepath"]).unlink()
+    out = s.log_desk(project="overmind", done="leggere")
+    assert out.get("missing_file") is True
+    assert "error" in out
+
+
+def test_closing_updates_the_files_updated_frontmatter_too(s):
+    """close_desk aggiornava `updated_at` nel DB ma non `updated:` nel file,
+    mentre `status:` sì — un'incoerenza economica da chiudere."""
+    d = _open(s)
+    before = (s.brain_dir / d["filepath"]).read_text(encoding="utf-8")
+    before_updated = next(l for l in before.split("\n") if l.startswith("updated: "))
+    s.close_desk(d["slug"], "done", project="overmind")
+    archived = s.brain_dir / "desks" / "overmind" / "archived" / f"{d['slug']}.md"
+    after = archived.read_text(encoding="utf-8")
+    after_updated = next(l for l in after.split("\n") if l.startswith("updated: "))
+    assert after_updated != before_updated
+
+
 def test_two_sequential_sessions_reading_back_both_see_both_notes(s, tmp_path):
     """Due sessioni che annotano una dopo l'altra: nessuna sovrascrive l'altra.
 

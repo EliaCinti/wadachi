@@ -21,6 +21,20 @@ def test_with_no_desk_the_context_does_not_mention_one(srv):
     assert "scrivania" not in out.lower()
 
 
+def test_an_unregistered_cwd_does_not_leak_another_projects_desks(srv, tmp_path):
+    """Finding 2: `project=None` non deve tradursi in «tutti i progetti».
+
+    Il test sopra non lo scopre perché non semina nessuna scrivania: qui ce
+    ne sono due in un progetto vero, e la cwd del chiamante non è
+    registrata da nessuna parte — il §3 della spec dice «nessuna → non
+    dice niente», non «tutte»."""
+    srv.store.open_desk("Uno", "O", "d", ["a"], project="p")
+    srv.store.open_desk("Due", "O", "d", ["b"], project="p")
+    out = srv.get_context(cwd="/nessun/percorso/mai/registrato", task_description="")
+    assert "scrivania" not in out.lower()
+    assert "Uno" not in out and "Due" not in out
+
+
 def test_an_open_desk_comes_before_the_memories(srv, tmp_path):
     srv.store.store_memory("una memoria", "M", project="p")
     srv.store.open_desk("Il lavoro", "Fare X", "i test passano",
@@ -29,6 +43,18 @@ def test_an_open_desk_comes_before_the_memories(srv, tmp_path):
     assert "scrivania" in out.lower()
     assert out.lower().index("scrivania") < out.index("memorie")
     assert "primo passo" in out
+
+
+def test_a_deleted_desk_file_does_not_crash_get_context(srv, tmp_path):
+    """Finding 1: cancellare il .md a mano (Obsidian lo invita a fare) non
+    deve mandare in FileNotFoundError l'intera get_context — è lo strumento
+    obbligatorio a inizio sessione, quindi il crash peggiore possibile."""
+    d = srv.store.open_desk("Il lavoro", "Fare X", "i test passano",
+                            ["primo"], project="p")
+    (srv.store.brain_dir / d["filepath"]).unlink()
+    out = srv.get_context(cwd=str(tmp_path), task_description="")
+    assert out
+    assert "non c'è più" in out
 
 
 def test_two_open_desks_are_listed_not_chosen(srv, tmp_path):

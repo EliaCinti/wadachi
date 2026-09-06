@@ -47,3 +47,28 @@ def test_wiki_tools_page_count_matches_reality(server):
         f"tools.md dichiara {declared} strumenti, ce ne sono {real_total} "
         f"({len(server.exposed_tool_names())} in menù + "
         f"{len(server.tools_in(server.MAINTENANCE))} di manutenzione)")
+
+
+def test_wiki_index_tool_count_matches_reality(server):
+    """demo/wiki-src/index.md dichiara anche lui il conteggio totale, ed era
+    l'unico a non avere una guardia (finding 6)."""
+    real_total = len(server.exposed_tool_names()) + len(server.tools_in(server.MAINTENANCE))
+    index = (ROOT / "demo" / "wiki-src" / "index.md").read_text(encoding="utf-8")
+    declared = _declared_total(index, r"every one of the (\d+) tools", "index.md")
+    assert declared == real_total, (
+        f"index.md dichiara {declared} strumenti, ce ne sono {real_total} "
+        f"({len(server.exposed_tool_names())} in menù + "
+        f"{len(server.tools_in(server.MAINTENANCE))} di manutenzione)")
+
+
+def test_changelog_menu_count_matches_reality(server):
+    """CHANGELOG.md diceva «23 strumenti in menù» nella stessa sezione
+    [Unreleased] che aggiunge i tre tool della scrivania: il numero reale nel
+    menù è 26, come già dice README.md — nessun test lo controllava, quindi
+    la contraddizione è passata inosservata (finding 5)."""
+    real_menu = len(server.exposed_tool_names())
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    declared = _declared_total(changelog, r"Risultato: (\d+) strumenti in menù",
+                                "CHANGELOG.md")
+    assert declared == real_menu, (
+        f"CHANGELOG.md dichiara {declared} strumenti in menù, ce ne sono {real_menu}")

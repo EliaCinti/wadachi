@@ -98,10 +98,12 @@ Three things the script does **not** do, and one it leaves behind:
 
 > **The served directory is still called `engram`** — the name predates the
 > rebrand, and there is **no `wadachi` directory on the server**. The real
-> destination lives in one place, `DEST` in `scripts/deploy-site.sh`; renaming it
-> means moving the bind mount and the `root` in the server block together. Until
-> someone does that, `engram` is correct, and this note exists so nobody "fixes"
-> it into a broken deploy.
+> destination is not in this repository at all: it lives in `.deploy.env`, which
+> is git-ignored, because the origin sits behind Cloudflare and publishing its
+> address undoes half of what the proxy is for. Copy `.deploy.env.example` and
+> fill it in once. Renaming the directory means moving the bind mount and the
+> `root` in the server block together; until someone does, `engram` is correct,
+> and this note exists so nobody "fixes" it into a broken deploy.
 
 ### nginx — a reference block, not the deployed one
 

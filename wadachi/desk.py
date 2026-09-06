@@ -78,6 +78,8 @@ def next_step(text: str) -> str | None:
 def tick_step(text: str, label: str) -> tuple[str, bool]:
     """Spunta un passo. Restituisce `(testo, era_già_fatto)`."""
     start, end = _section(text, PLAN)
+    if start < 0:
+        return (text, False)
     lines = text.split("\n")
     in_fence = False
     for i in range(start, end):
@@ -119,9 +121,11 @@ def add_open(text: str, line: str) -> str:
 
 def add_steps(text: str, labels: list[str]) -> str:
     """Passi nuovi in fondo al piano, non spuntati."""
-    start, end = _section(text, PLAN)
-    if start < 0 or not labels:
+    if not labels:
         return text
+    start, end = _section(text, PLAN)
+    if start < 0:
+        return text.rstrip("\n") + f"\n\n{PLAN}\n" + "\n".join(f"- [ ] {l}" for l in labels) + "\n"
     lines = text.split("\n")
     while end > start and not lines[end - 1].strip():
         end -= 1

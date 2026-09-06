@@ -38,14 +38,25 @@ def test_a_finished_plan_has_no_next_step():
 
 
 def test_a_checkbox_inside_a_code_fence_is_not_a_step():
-    """Un registro che annota `- [ ] X` non deve spostare il cursore."""
+    """Un passo che contiene un esempio di codice non genera passi fantasma."""
     trap = DESK.replace(
-        "- **20:00** — nota vecchia",
-        "- **20:00** — provato a scrivere:\n```\n- [ ] finto\n```",
+        "- [ ] secondo",
+        "- [ ] secondo\n```\n- [ ] finto, sono un esempio\n- [x] anche io\n```",
     )
     assert [l for _, l in parse_plan(trap)] == [
         "primo", "secondo", "terzo fuori ordine", "quarto"]
     assert next_step(trap) == "secondo"
+
+
+def test_tick_step_respects_code_fences_in_the_plan():
+    """Una linea dentro un fence non è un passo, quindi non si può spuntare."""
+    trap = DESK.replace(
+        "- [ ] secondo",
+        "- [ ] secondo\n```\n- [ ] finto, sono un esempio\n```",
+    )
+    out, already = tick_step(trap, "finto, sono un esempio")
+    assert already is False
+    assert out == trap
 
 
 def test_only_the_plan_section_counts():

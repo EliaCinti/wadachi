@@ -474,36 +474,63 @@ def _brain_proposals() -> list[str]:
     return props
 
 
+def _clip(s: str | None, n: int = 80) -> str:
+    """Accorcia una stringa a n caratteri, con ellissi se tagliata."""
+    s = (s or "").strip()
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
 def _desk_block(project: str | None, budget: int) -> str:
     """Il riassunto della scrivania, con un tetto proprio.
 
     Entra nel bilancio di `get_context` come prima voce ma limitato, così una
     scrivania lunga non svuota la lista delle memorie. Sotto il minimo si
-    riduce a titolo e prossimo passo, che è quanto basta per riprendere.
+    riduce a titolo e prossimo passo, che è quanto basta per riprendere — e
+    ogni ramo, incluso quello con più scrivanie aperte, rispetta `budget`:
+    titolo e prossimo passo sono accorciati, e in ultima istanza il blocco
+    viene tagliato di netto piuttosto che sforare.
     """
+    def cap(s: str) -> str:
+        """Rete di sicurezza: se anche la forma degradata sfora, taglia netto."""
+        return s if _est_tokens(s) <= budget else s[: max(budget * 4, 0)]
+
     open_ones = store.list_desks(project=project, status="open")
     if not open_ones:
         return ""
+
     if len(open_ones) > 1:
-        names = " · ".join(f"`{d['slug']}` ({d['title']})" for d in open_ones)
-        return f"## 🖿 scrivanie aperte\n{names}\n→ desk_read(slug)\n\n"
+        names = " · ".join(f"`{d['slug']}` ({_clip(d['title'], 40)})" for d in open_ones)
+        full = f"## 🖿 scrivanie aperte\n{names}\n→ desk_read(slug)\n\n"
+        if _est_tokens(full) <= budget:
+            return full
+        # list_desks ordina già per updated_at DESC: la prima è la più recente
+        latest = open_ones[0]["slug"]
+        brief = (f"## 🖿 {len(open_ones)} scrivanie aperte, la più recente è "
+                 f"`{latest}` — desk_read(slug)\n\n")
+        if _est_tokens(brief) <= budget:
+            return brief
+        return cap(f"## 🖿 {len(open_ones)} scrivanie aperte\n\n")
 
     got = store.read_desk(open_ones[0]["slug"], project)
     if not got:
         return ""
+    title = _clip(got["title"], 80)
+    next_step = _clip(got["next_step"] or "— piano finito, valuta di chiudere", 80)
     head = (f"## 🖿 scrivania aperta — `{got['slug']}`\n"
-            f"**{got['title']}**\n"
-            f"Prossimo passo: **{got['next_step'] or '— piano finito, valuta di chiudere'}**\n")
+            f"**{title}**\n"
+            f"Prossimo passo: **{next_step}**\n")
     if _est_tokens(head) > budget:
-        return f"## 🖿 scrivania `{got['slug']}` — prossimo: {got['next_step'] or 'finito'}\n\n"
+        fallback = (f"## 🖿 scrivania `{got['slug']}` — prossimo: "
+                    f"{_clip(got['next_step'] or 'finito', 60)}\n\n")
+        return cap(fallback)
 
     body = ""
     for label, marker in (("Obiettivo", "## Obiettivo"), ("Registro", "## Registro")):
         chunk = got["text"].split(marker)[1].split("\n##")[0].strip() if marker in got["text"] else ""
-        first = next((l for l in chunk.split("\n") if l.strip()), "")
+        first = _clip(next((l for l in chunk.split("\n") if l.strip()), ""), 80)
         if first and _est_tokens(head + body + first) <= budget:
-            body += f"{label}: {first.strip()}\n"
-    return head + body + "→ desk_read() per il resto\n\n"
+            body += f"{label}: {first}\n"
+    return cap(head + body + "→ desk_read() per il resto\n\n")
 
 
 def _render_context_dense(context: dict, max_tokens: int, project: str | None = None) -> str:

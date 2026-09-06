@@ -1,6 +1,7 @@
 """get_context e la scrivania: in cima, dentro il budget, e muta se non c'è."""
 
 import importlib
+import re
 
 import pytest
 
@@ -37,11 +38,30 @@ def test_two_open_desks_are_listed_not_chosen(srv, tmp_path):
     assert "Uno" in out and "Due" in out
 
 
-def test_a_tight_budget_keeps_both_the_desk_and_a_memory(srv, tmp_path):
+def test_a_tight_budget_keeps_the_cap_and_a_memory(srv, tmp_path):
     for i in range(5):
         srv.store.store_memory(f"memoria numero {i}", f"M{i}", project="p")
-    srv.store.open_desk("Il lavoro", "x" * 400, "d", ["passo lungo " * 20],
-                        project="p")
-    out = srv.get_context(cwd=str(tmp_path), task_description="", max_tokens=200)
-    assert "scrivania" in out.lower()
-    assert "M" in out, "un budget stretto non deve cancellare tutte le memorie"
+    long_step = "passo molto lungo da completare, con parecchi dettagli " * 10
+    long_objective = "un obiettivo scritto con dovizia di dettagli inutili " * 10
+    srv.store.open_desk("Un titolo di scrivania piuttosto lungo e descrittivo",
+                        long_objective, "d", [long_step], project="p")
+    max_tokens = 200
+    out = srv.get_context(cwd=str(tmp_path), task_description="", max_tokens=max_tokens)
+    assert srv._est_tokens(out) <= max_tokens, "il budget include la scrivania: non va sforato"
+    assert re.search(r"#\d+", out), "un budget stretto non deve cancellare tutte le memorie"
+    assert "🖿" in out, "la scrivania degradata deve restare presente, non sparire"
+
+
+def test_many_long_titled_desks_still_respect_the_budget(srv, tmp_path):
+    titles = [
+        "Refactor the entire authentication and session management subsystem",
+        "Migrate the legacy billing pipeline to the new event-driven architecture",
+        "Investigate and fix the intermittent flakiness in the CI test suite",
+        "Write comprehensive documentation for the new plugin API surface",
+    ]
+    for t in titles:
+        srv.store.open_desk(t, "obiettivo", "fatto quando è fatto", ["passo"], project="p")
+    max_tokens = 200
+    out = srv.get_context(cwd=str(tmp_path), task_description="", max_tokens=max_tokens)
+    assert srv._est_tokens(out) <= max_tokens, "più scrivanie non devono sforare il budget"
+    assert "🖿" in out, "il blocco scrivanie deve restare presente, anche degradato"

@@ -32,3 +32,6 @@ add_fisica1.py
 # Personal multi-device & backup infra (hardcoded machine-specific paths)
 backup/
 setup-air/
+
+# Deploy target (host + key path) — the origin is behind Cloudflare, keep it out of git
+.deploy.env

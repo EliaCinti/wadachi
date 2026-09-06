@@ -9,8 +9,15 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DEMO="$REPO/demo"
-DEST="elia@178.104.95.126:/home/elia/engram/"
-KEY="$HOME/.ssh/feynotes_deploy"
+
+# Where the site lives is NOT in this repository. The origin sits behind
+# Cloudflare, and keeping it unreachable except through the proxy is half of
+# what the proxy buys; a public repo is the wrong place to publish its address.
+# Copy .deploy.env.example to .deploy.env (git-ignored) and fill it in.
+# shellcheck source=/dev/null
+[ -f "$REPO/.deploy.env" ] && . "$REPO/.deploy.env"
+DEST="${WADACHI_DEPLOY_DEST:?missing deploy target — copy .deploy.env.example to .deploy.env and fill it in}"
+KEY="${WADACHI_DEPLOY_KEY:?missing deploy key path — set WADACHI_DEPLOY_KEY in .deploy.env}"
 
 VERSION=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$REPO/wadachi/__init__.py")
 [ -n "$VERSION" ] || { echo "versione non trovata"; exit 1; }

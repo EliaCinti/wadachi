@@ -31,6 +31,7 @@ Everything in wadachi follows four design rules:
 
 ## Where to start
 
+- What wadachi *is*, and which part of an agent it is → [[harness]]
 - New here → [[installation]] then [[connect]]
 - Want to understand the design → [[brain]], [[beliefs]], [[graph]]
 - Daily workflow → [[get-context]], [[search]], [[sleep]]

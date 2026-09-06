@@ -48,6 +48,39 @@ One tool call at session start. All relevant context loaded. Zero wasted tokens 
 
 ---
 
+## Where Wadachi sits: the harness
+
+A stack has been forming under AI agents — **prompt → context → harness → loop**.
+Prompt engineering was wording one request well; context engineering was curating what
+the model sees before each call. Both hit the same wall: the window fills, quality falls
+off a cliff (*context rot*), and the usual remedy — summarising to make room
+(*compaction*) — buys that room by throwing away precision.
+
+A **harness** is the scaffolding *outside* the model that re-initialises the agent step
+by step: fresh context each step, durable state read back from disk, work resumed
+exactly where it stopped. Nothing gets summarised, because nothing had to fit.
+*Agent = Model + Harness.*
+
+**Wadachi is not a harness. It is the memory of one** — and memory here has two layers,
+with two different lifetimes:
+
+- **The hippocampus** — what you *learned*. Survives the end of a **session**. It is
+  everything described below: memories, decisions, beliefs, the graph, sleep. **Built.**
+- **The desk** — what you are *doing*. Survives the end of a **context window**: the plan
+  for the task in flight, the steps already done, where the thread was dropped.
+  **On the roadmap** — today that state is either lost to compaction or written out by
+  hand as a handover note.
+
+And the boundary that keeps the two projects honest: **Wadachi never executes anything,
+and never decides when something starts.** No runner, no sandbox, no scheduler — those
+belong to whatever harness drives your agent. `reflect`, `sleep` and `consolidate` look
+loop-shaped, but they are background maintenance that *proposes*; they never decide that
+work should begin.
+
+→ Full explanation: **[The harness — where Wadachi sits](https://wadachi.eliacinti.dev/wiki/harness.html)**
+
+---
+
 ## Features
 
 **Persistent Memory** — Knowledge stored as markdown files with SQLite metadata. Survives across sessions, searchable, human-readable.
@@ -339,6 +372,9 @@ Semantic search runs entirely on your machine — no API calls, no cloud, no cos
 
 ## Roadmap
 
+- [ ] **The desk** — durable working state for the task in flight (plan, steps done,
+      where the thread was dropped), so an agent resumes exactly where it stopped
+      instead of compacting or handing over by hand
 - [ ] Auto-summarize old memories to reduce token usage
 - [ ] Memory importance decay (surface recent and frequently-accessed memories first)
 - [ ] Claude Code hooks for automatic context injection + brain backup on session stop

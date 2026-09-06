@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CLI reference — wadachi wiki</title>
-<meta name="description" content="Everything accepts --brain-dir PATH (or the BRAIN_DIR env var; fallback
-~/.wadachi, legacy ~/.engram honored).">
-<link rel="canonical" href="https://wadachi.eliacinti.dev/wiki/cli.html">
+<title>The harness — where wadachi sits — wadachi wiki</title>
+<meta name="description" content="A stack is forming under AI agents, and it has renamed itself roughly once a year:">
+<link rel="canonical" href="https://wadachi.eliacinti.dev/wiki/harness.html">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23101012'/%3E%3Cpath d='M5 11.5C5 10.4 5.9 9.6 7 9.7L21 10.6C23.5 10.8 25.5 11.2 27 11.8C25.5 12.3 23.5 12.5 21 12.5L7 13.2C5.9 13.3 5 12.6 5 11.5Z' fill='%23E8E4DC'/%3E%3Cpath d='M5 19.5C5 18.4 5.9 17.6 7 17.7L19.5 18.6C22 18.8 24 19.2 25.5 19.8C24 20.3 22 20.5 19.5 20.5L7 21.2C5.9 21.3 5 20.6 5 19.5Z' fill='%23E8E4DC'/%3E%3Crect x='23' y='23' width='5' height='5' rx='1.4' fill='%23D9442B'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../styles.css?v=10">
 <style>
@@ -93,7 +92,7 @@
 <div class="wk-wrap">
 <nav class="wk-nav" aria-label="wiki"><div class="g">Start here</div>
 <a href="index.html">Welcome to the wadachi wiki</a>
-<a href="harness.html">The harness — where wadachi sits</a>
+<a href="harness.html" class="on">The harness — where wadachi sits</a>
 <a href="installation.html">Installation</a>
 <a href="connect.html">Connecting your client</a>
 <div class="g">The brain</div>
@@ -115,61 +114,98 @@
 <a href="safety.html">Safety — the whole chain</a>
 <div class="g">Reference</div>
 <a href="tools.html">Tool reference — all 31</a>
-<a href="cli.html" class="on">CLI reference</a>
+<a href="cli.html">CLI reference</a>
 <a href="troubleshooting.html">Troubleshooting</a>
 <a href="faq.html">FAQ — the honest answers</a></nav>
 <main class="wk-main">
-<h1>CLI reference</h1>
-<p>Everything accepts <code>--brain-dir PATH</code> (or the <code>BRAIN_DIR</code> env var; fallback
-<code>~/.wadachi</code>, legacy <code>~/.engram</code> honored).</p>
-<h2>wadachi</h2>
-<p>No arguments → runs the MCP server on stdio. This is what your client launches;
-you rarely run it by hand.</p>
-<h2>wadachi init</h2>
-<p>Guided setup: brain dir, migrated DB, <code>SCHEMA.md</code>, <code>index.md</code>, Claude Code and
-Antigravity registration. Idempotent. Flags: <code>--brain-dir</code>, <code>--no-claude</code>,
-<code>--no-antigravity</code>. Details in <a class="wl" href="installation.html">Installation</a>.</p>
-<h2>wadachi doctor</h2>
-<p>Read-only diagnosis: dir &amp; permissions, DB integrity, schema version vs available
-migrations, missing/orphan/malformed files, wiki files, search mode, MCP
-registration. Exit code 0/1.</p>
-<p><code>--fix</code> repairs <strong>only what's safe</strong>: missing directories, non-canonical frontmatter
-(regenerated from the DB, prose untouched), regenerated index, missing SCHEMA.md.
-<code>--no-mcp</code> skips the client check. See <a class="wl" href="troubleshooting.html">Troubleshooting</a>.</p>
-<h2>wadachi sleep</h2>
-<p>The consolidation report (<a class="wl" href="sleep.html">Sleep — consolidation, proposed</a>) — read-only, caches results so the next
-<code>get_context</code> proposes them. Built for cron.</p>
-<h2>wadachi obsidian</h2>
-<p>On-demand wikilink backfill for the Obsidian graph (<a class="wl" href="obsidian-okf.html">LLM Wiki, Obsidian &amp; OKF</a>).
-<code>--dry-run</code> previews. Never runs automatically.</p>
-<h2>wadachi export</h2>
-<p>Portable snapshot of the whole brain — strictly read-only, safe even before an
-upgrade or on a legacy Engram brain. <code>--out FILE</code> to choose the destination.
-See <a class="wl" href="safety.html">Safety — the whole chain</a>.</p>
-<h2>wadachi restore</h2>
-<p><code>--to &lt;new-dir&gt;</code> restores an export somewhere fresh (refuses non-empty targets
-without <code>--force</code>). <code>--replace</code> swaps the <strong>active</strong> brain, safety-exporting the
-current state first. See <a class="wl" href="safety.html">Safety — the whole chain</a>.</p>
-<h2>Environment</h2>
+<h1>The harness — where wadachi sits</h1>
+<p>A stack is forming under AI agents, and it has renamed itself roughly once a year:</p>
+<pre><code>prompt  →  context  →  harness  →  loop
+</code></pre>
+<p><strong>Prompt engineering</strong> was wording one request well. <strong>Context engineering</strong> was
+curating what the model sees before each call. Both run into the same wall: the
+context window fills up, quality falls off a cliff — <em>context rot</em> — and the usual
+remedy, summarising the conversation to make room (<em>compaction</em>), buys that room by
+throwing away precision.</p>
+<p><strong>Harness engineering</strong> is the answer to that wall. A harness is scaffolding <em>outside</em>
+the model that re-initialises the agent step by step: every step opens with a fresh
+context, reads the durable state the previous step left on disk, and resumes exactly
+where the work stopped. Nothing gets summarised, because nothing had to fit.</p>
+<blockquote>
+<p><em>Agent = Model + Harness.</em> The model is the part you rent. The harness is the part
+you build — and it is the part that decides whether an agent is reliable or merely
+clever.</p>
+</blockquote>
+<h2>Wadachi is not a harness. It is the memory of one.</h2>
+<p>This is the boundary, and it is deliberate:</p>
+<blockquote>
+<p><strong>Wadachi never executes anything, and never decides when something starts.</strong></p>
+</blockquote>
+<p>No runner, no sandbox, no scheduler — and it will not grow one. Wadachi answers what
+is known and records what is learned. Running the agent, holding the cage, choosing
+the moment: that all belongs to whatever harness is driving your agent — your coding
+CLI, your agent framework, your own script.</p>
+<p>That is a boundary, not a shortfall. A memory that also decided when to act would be
+two products fighting inside one process, and you could not swap either half.</p>
+<h2>The two layers</h2>
+<p>A harness needs memory over two very different horizons, and they are not the same
+thing:</p>
 <div class="tblw"><table>
 <thead>
 <tr>
-<th>var</th>
-<th>effect</th>
+<th></th>
+<th>keeps</th>
+<th>survives</th>
+<th>status</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>BRAIN_DIR</td>
-<td>where the brain lives</td>
+<td><strong>The hippocampus</strong></td>
+<td>what you <em>learned</em></td>
+<td>the end of a <strong>session</strong></td>
+<td>built — most of this wiki</td>
 </tr>
 <tr>
-<td>WADACHI_LOG</td>
-<td>log level for <code>logs/wadachi.log</code> (default INFO; DEBUG adds per-tool timings)</td>
+<td><strong>The desk</strong></td>
+<td>what you are <em>doing</em></td>
+<td>the end of a <strong>context window</strong></td>
+<td>on the roadmap</td>
 </tr>
 </tbody>
 </table></div>
-<div class="wk-foot"><a href="tools.html">← Tool reference — all 31</a><a href="troubleshooting.html">Troubleshooting →</a></div>
+<h3>The hippocampus — built</h3>
+<p>The durable half. <a class="wl" href="memories.html">Memories</a> with versions, <a class="wl" href="decisions.html">Decisions</a> that keep their rationale
+and their rejected alternatives, <a class="wl" href="beliefs.html">Beliefs, staleness &amp; decay</a> that can go stale and be superseded, a
+typed <a class="wl" href="graph.html">The typed knowledge graph</a> that connects them, and <a class="wl" href="sleep.html">Sleep — consolidation, proposed</a> to consolidate. It is what lets a
+new session know what the last one figured out.</p>
+<p><a class="wl" href="get-context.html">get_context — start here, every session</a> is the resume step for this layer: one call at the start of a session,
+and the knowledge is back without re-deriving it.</p>
+<h3>The desk — not built yet</h3>
+<p>The working half: the plan for the task in flight, the steps already done, what was
+tried and failed, where the thread was dropped. Today, when a session gets too long,
+that state is either lost to compaction or written out by hand as a handover note.
+The desk is the roadmap item that makes the harness's step-by-step resume real for
+<em>work in progress</em>, not just for knowledge. Until it ships, this page says so plainly.</p>
+<h2>Why the two must not be merged</h2>
+<p>Different lifetimes. What you learned should outlive everything; what you are doing
+right now should be distilled or discarded when the task closes. Tip the desk into
+the hippocampus and recall gets worse — the brain fills with the debris of finished
+work, and the ranking has more noise to beat.</p>
+<p>Wadachi already has a documented case of exactly that failure mode: recency-ranked
+recall once <em>hid</em> the right rule and let the same mistake happen twice. That incident
+is why procedural memory exists (see <a class="wl" href="tools.html">Tool reference — all 31</a> → <code>review_procedures</code>). The lesson
+generalises: keep the layers apart.</p>
+<h2>What about the loop?</h2>
+<p><strong>Wadachi has no agent loop, and is not getting one.</strong> <code>reflect</code>, <code>sleep</code> and
+<code>consolidate</code> look loop-shaped, but they are background maintenance of the brain: they
+<em>propose</em>, and you approve. Deciding that work should start, iterating until a goal is
+verified, capping the attempts — that is the loop, it lives in the harness, and it is
+not wadachi's job.</p>
+<p>This is just rule 3 of the <a class="wl" href="index.html">four rules</a> applied to the stack: <strong>propose, never
+auto-edit.</strong> The software suggests; the human — or the harness the human chose —
+decides.</p>
+<div class="wk-foot"><a href="index.html">← Welcome to the wadachi wiki</a><a href="installation.html">Installation →</a></div>
 </main>
 </div>
 <footer class="footer">

@@ -153,6 +153,55 @@
   </div>
 </section>
 
+<!-- ── THE HARNESS ───────────────────────────────────────── -->
+<section class="section" id="harness">
+  <div class="section-head">
+    <div class="kicker">Where wadachi sits</div>
+    <h2>Not a harness. The <span class="hl">memory</span> of one.</h2>
+    <p class="section-sub">
+      Prompt engineering was wording one request well. Context engineering was curating what
+      the model sees before each call. Both run into the same wall — the window fills, quality
+      falls off a cliff, and the usual remedy, summarising to make room, buys that room by
+      throwing precision away. A <strong>harness</strong> is the scaffolding <em>outside</em>
+      the model that re-initialises the agent step by step: fresh context each step, durable
+      state read back from disk, work resumed exactly where it stopped.
+    </p>
+  </div>
+
+  <div class="code wide">prompt  →  context  →  <strong>harness</strong>  →  loop</div>
+
+  <div class="feature-grid">
+    <article class="card accent">
+      <div class="card-icon">◉</div>
+      <h3>The hippocampus <span class="badge">built</span></h3>
+      <p>What you <em>learned</em> — it survives the end of a <strong>session</strong>.
+         Memories with versions, decisions that keep their rationale and their rejected
+         alternatives, beliefs that can go stale, a typed graph, sleep. <code>get_context</code>
+         is the resume step for this layer: one call, and the knowledge is back without
+         re-deriving it.</p>
+    </article>
+
+    <article class="card">
+      <div class="card-icon">▤</div>
+      <h3>The desk <span class="badge stale">on the roadmap</span></h3>
+      <p>What you are <em>doing</em> — it has to survive the end of a
+         <strong>context window</strong>: the plan for the task in flight, the steps already
+         done, what was tried and failed, where the thread was dropped. Today that state is
+         either lost to compaction or written out by hand as a handover note. Not built yet,
+         and this page says so plainly.</p>
+    </article>
+  </div>
+
+  <p class="compare-note">
+    The line that keeps it honest: <em>wadachi never executes anything, and never decides when
+    something starts.</em> No runner, no sandbox, no scheduler — those belong to whatever
+    harness drives your agent. <code>reflect</code>, <code>sleep</code> and
+    <code>consolidate</code> look loop-shaped, but they are background maintenance that
+    <em>proposes</em>; they never decide that work should begin.
+    <a href="wiki/harness.html">The full explanation →</a>
+  </p>
+</section>
+
 <!-- ── FEATURES ──────────────────────────────────────────── -->
 <section class="section" id="features">
   <div class="section-head">

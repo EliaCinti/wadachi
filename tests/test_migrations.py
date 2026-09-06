@@ -140,8 +140,6 @@ def test_migration_0003_creates_the_desks_index(tmp_path):
 
 def test_migration_0003_keys_a_desk_by_project_and_slug(tmp_path):
     """Lo stesso slug in due progetti è legittimo; due volte nello stesso, no."""
-    import sqlite3
-    import pytest
     from wadachi.store import MemoryStore
     s = MemoryStore(str(tmp_path / "brain"))
     with s._write() as conn:

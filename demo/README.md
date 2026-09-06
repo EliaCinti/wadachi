@@ -17,14 +17,22 @@ quick-start CTA.
 
 ## Files
 
-| File | What it is |
-|------|------------|
-| `index.html` | The page (structure + sections). |
-| `styles.css` | All styling (dark theme, no framework). |
-| `app.js` | The whole hero engine: builds the SVG graph on scroll, decodes the headline, runs the recall terminal, animates particles. The small curated demo graph is defined inline here. |
+| File | What it is | Published? |
+|------|------------|:---:|
+| `index.html` | The landing page (structure + sections). | yes |
+| `styles.css` | All styling (dark theme, no framework). | yes |
+| `app.js` | The whole hero engine: builds the SVG graph on scroll, decodes the headline, runs the recall terminal, animates particles. The small curated demo graph is defined inline here. | yes |
+| `docs.html` | A redirect to `wiki/index.html` — the docs outgrew a single page. | yes |
+| `og.png`, `fonts/` | Social card and self-hosted faces. | yes |
+| `wiki/` | The compiled wiki, **generated** — never edit by hand. | yes |
+| `wiki-src/` | The wiki's markdown sources with `[[wikilinks]]`, compiled by `scripts/build-wiki.py`. | **no** |
+| `README.md` | This file. | **no** |
 
-No build step, **no external runtime dependencies**, no data files to load —
-`app.js` is pure vanilla JS and carries its own curated graph.
+The landing itself has no build step and **no external runtime dependencies** —
+`app.js` is pure vanilla JS and carries its own curated graph. The wiki does have
+one: `wiki/` is compiled from `wiki-src/`, and the two right-hand `no`s are
+deliberate — the deploy publishes an explicit list of files, so sources and this
+README stay off the public site.
 
 ---
 
@@ -35,6 +43,13 @@ From inside this directory:
 ```bash
 python3 -m http.server 8000
 # open http://localhost:8000
+```
+
+If you touched anything under `wiki-src/`, rebuild first or you will be previewing
+the previous wiki:
+
+```bash
+cd .. && venv/bin/python scripts/build-wiki.py
 ```
 
 ---
@@ -57,28 +72,55 @@ Palette is Wadachi's own violet `#8b7cf6` / cyan `#34d3ee` on near-black
 
 ---
 
-## Deploy (Hetzner VPS + nginx, behind Cloudflare)
+## Deploy
 
-Same pattern as `briefing.eliacinti.dev → /usr/share/nginx/briefing`.
-
-**One-line deploy** (rsync the static files to the VPS):
+**One command, from the repository root:**
 
 ```bash
-rsync -avz --delete ./ USER@VPS:/usr/share/nginx/wadachi/
+scripts/deploy-site.sh          # add --bump only if you edited styles.css or app.js
 ```
 
-### nginx server block — `wadachi.eliacinti.dev`
+It aligns the version pill to `wadachi/__init__.py`, rsyncs an **explicit list** of
+files (`index.html docs.html styles.css app.js og.png fonts wiki`) to the served
+directory, and verifies the result with `curl`. The list is explicit on purpose:
+that is what keeps `wiki-src/` and this README off the public site, and it is why
+the script uses no `--delete`.
 
-Drop this in `/etc/nginx/sites-available/wadachi.eliacinti.dev` (or your conf.d),
-then `ln -s … sites-enabled/`, `nginx -t`, `systemctl reload nginx`.
+Three things the script does **not** do, and one it leaves behind:
+
+1. **It does not build the wiki.** Run `venv/bin/python scripts/build-wiki.py`
+   first whenever `wiki-src/` changed, or you will publish the old pages.
+2. **It does not commit anything.** After a deploy, `demo/index.html` carries the
+   rewritten version pill — commit it, or the next deploy rewrites it again.
+3. **It does not push.** `main` is a **protected branch**: `git push` straight to
+   it is refused with `GH006 — changes must be made through a pull request`.
+   Every change here, including a one-line pill, goes through a PR.
+
+> **The served directory is still called `engram`** — the name predates the
+> rebrand, and there is **no `wadachi` directory on the server**. The real
+> destination lives in one place, `DEST` in `scripts/deploy-site.sh`; renaming it
+> means moving the bind mount and the `root` in the server block together. Until
+> someone does that, `engram` is correct, and this note exists so nobody "fixes"
+> it into a broken deploy.
+
+### nginx — a reference block, not the deployed one
+
+The live configuration lives on the VPS, bind-mounted read-only into the nginx
+container, and it is **not reproduced here**:
+an earlier version of this file claimed a `try_files … /index.html` fallback that
+the running server does not have, which sent a real 404 while the docs promised a
+200. A copy of a config is a claim that goes stale silently — read the live one.
+
+What follows is a **reference block for someone self-hosting their own copy** of
+this site. It is not a description of `wadachi.eliacinti.dev`.
 
 ```nginx
 server {
     listen 80;
     listen [::]:80;
-    server_name wadachi.eliacinti.dev;
+    server_name wadachi.example.com;
 
-    root /usr/share/nginx/wadachi;
+    root /var/www/wadachi;   # wherever you put the files
     index index.html;
 
     # static site — try the file, else fall back to index.html
@@ -111,9 +153,8 @@ server {
 }
 ```
 
-TLS is terminated at Cloudflare (orange-cloud). If you also want origin TLS,
-add a `listen 443 ssl;` block with your cert paths exactly like the other
-subdomains; the `location`/headers stay identical.
+Add a `listen 443 ssl;` block with your own cert paths for origin TLS; the
+`location` blocks and headers stay identical.
 
 > Fonts: the page uses only system + monospace fonts, so there are **no external
 > font requests** and the CSP above needs no `fonts.googleapis.com` exception.

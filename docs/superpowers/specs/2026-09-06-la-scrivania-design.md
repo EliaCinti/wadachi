@@ -54,6 +54,12 @@ Le tre fonti convergono sulla stessa unità: **il compito**, non la sessione né
 
 `~/.wadachi/desks/<progetto>/<slug>.md`
 
+Lo slug nasce dal titolo (`_slugify`, lo stesso delle memorie) con due difese misurate su
+casi veri: un titolo che si riduce a niente (solo spazi, solo emoji) **viene rifiutato**
+invece di produrre un file senza nome; e uno slug già in uso nel progetto prende un
+suffisso numerico, perché due scrivanie con lo stesso titolo sono normali e la seconda non
+deve sovrascrivere la prima.
+
 ```markdown
 ---
 type: desk
@@ -89,6 +95,10 @@ Spostare `sign_in` dentro il tratto Provider, senza copiarlo.
    è un'informazione utile, non un ostacolo.
 2. **Il piano è una lista di spunta markdown.** «Il prossimo compito non finito» diventa «il
    primo `- [ ]`»: una riga di parsing, e resta modificabile a mano in Obsidian.
+   **Solo dentro la sezione `## Piano`, e mai dentro un blocco di codice**: un registro che
+   annota «ho provato a scrivere `- [ ] X`» romperebbe il cursore, ed è un caso reale, non
+   teorico. Il parser legge la sezione, salta i fence, e se non trova nessun `- [ ]` lo dice
+   invece di indovinare.
 3. **Il registro è cronologico inverso.** Rileggendolo con un budget di token si taglia la
    coda vecchia invece della testa fresca.
 4. **Il registro tiene i fallimenti.** «Provato X, fallito perché Y» è ciò che evita di
@@ -139,6 +149,12 @@ Quattro regole: un **riassunto** (~100 token), non il file; **più di una → le
 sceglie**; **nessuna → non dice niente** (chi non usa le scrivanie non ne paga il costo);
 una ferma da N giorni compare come «ancora aperta?» — **propone, non chiude**.
 
+**E il riassunto sta nel budget senza mangiarsi le memorie.** `_render_context_dense` ha un
+tetto (600 token di default) e già tronca per rilevanza fino a un minimo utile: la scrivania
+entra in quel bilancio come prima voce, ma con un tetto proprio, così una scrivania lunga
+non svuota la lista delle memorie. Se anche quel tetto non basta, si degrada a due righe —
+titolo e prossimo passo — che è il minimo perché una sessione sappia dove riprendere.
+
 ## 4 · Concorrenza
 
 Una memoria si scrive una volta; una scrivania è un file che **più sessioni modificano in
@@ -180,11 +196,15 @@ per recenza **ha nascosto la regola giusta e ha fatto ripetere lo stesso errore 
 
 **Ciclo di vita** — una scrivania si apre e si ritrova · senza `done_when` non si apre
 (nessun file creato) · il prossimo passo è il primo non spuntato, anche a spunte sparse ·
-piano finito → lo dice e invita a chiudere.
+piano finito → lo dice e invita a chiudere · **una checkbox dentro un blocco di codice nel
+registro non è un passo** · **un titolo che si riduce a niente viene rifiutato** · **due
+scrivanie con lo stesso titolo ottengono due slug diversi, e nessuna sovrascrive l'altra**.
 
 **Ripresa** — *(il test che conta)* apri, registra, poi **uno store nuovo di zecca**:
 `desk_read()` senza slug ritrova scrivania e passo giusto · `get_context` la mette in cima ·
-due scrivanie → le elenca e non sceglie · nessuna → non nomina la parola.
+due scrivanie → le elenca e non sceglie · nessuna → non nomina la parola · **con un budget
+stretto la scrivania non cancella le memorie**, e sotto il minimo si riduce a titolo e
+prossimo passo.
 
 **Concorrenza** — due note alternate a due letture → **entrambe** nel registro · passo già
 spuntato → «era già fatto» e il prossimo, senza errore · file mai troncato.

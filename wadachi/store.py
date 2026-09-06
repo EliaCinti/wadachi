@@ -32,6 +32,10 @@ def _slugify(text: str) -> str:
     return text[:80].strip("-")
 
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     """Write a file atomically: a concurrent reader (or writer) never sees a
     torn/half-written file. Write to a unique temp file in the same directory,
@@ -882,6 +886,143 @@ class MemoryStore:
         if project == "global":
             return self.brain_dir / "global"
         return self.brain_dir / "projects" / project
+
+    # ── La scrivania (P1) ─────────────────────────────────────
+
+    def _desk_dir(self, project: str) -> Path:
+        return self.brain_dir / "desks" / project
+
+    def _desk_path(self, project: str, slug: str, archived: bool = False) -> Path:
+        base = self._desk_dir(project)
+        return (base / "archived" / f"{slug}.md") if archived else (base / f"{slug}.md")
+
+    def open_desk(self, title: str, objective: str, done_when: str,
+                  plan: list[str] | None = None, project: str = "global") -> dict:
+        """Apre una scrivania. `done_when` è la condizione d'arresto: obbligatoria."""
+        from . import desk as D
+        if not (done_when or "").strip():
+            raise ValueError(
+                "una scrivania senza «fatto quando» è un diario: dì come si "
+                "riconosce che il lavoro è finito"
+            )
+        with self._write() as conn:
+            taken = {r["slug"] for r in conn.execute(
+                "SELECT slug FROM desks WHERE project = ?", (project,))}
+            slug = D.desk_slug(title, taken)
+            now = _utcnow()
+            rel = f"desks/{project}/{slug}.md"
+            text = D.render_desk(
+                meta={"slug": slug, "title": title, "project": project,
+                      "status": "open", "created": now, "updated": now},
+                objective=objective, done_when=done_when, plan=plan or [])
+            path = self._desk_path(project, slug)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(path, text)
+            conn.execute(
+                "INSERT INTO desks (slug, project, title, status, created_at, "
+                "updated_at, filepath) VALUES (?, ?, ?, 'open', ?, ?, ?)",
+                (slug, project, title, now, now, rel))
+        self.append_log("desk_open", f"{project}/{slug}")
+        return {"slug": slug, "project": project, "title": title, "filepath": rel}
+
+    def _resolve_desk(self, conn, slug: str | None, project: str | None):
+        if slug:
+            return conn.execute(
+                "SELECT * FROM desks WHERE slug = ? AND project = ?",
+                (slug, project or "global")).fetchone()
+        rows = conn.execute(
+            "SELECT * FROM desks WHERE status = 'open'"
+            + (" AND project = ?" if project else "")
+            + " ORDER BY updated_at DESC",
+            ((project,) if project else ())).fetchall()
+        return rows[0] if len(rows) == 1 else None
+
+    def read_desk(self, slug: str | None = None, project: str | None = None) -> dict | None:
+        """La scrivania e il suo prossimo passo. Senza slug: l'unica aperta."""
+        from . import desk as D
+        with self._conn() as conn:
+            row = self._resolve_desk(conn, slug, project)
+            if row is None:
+                open_ones = self.list_desks(project=project)
+                if len(open_ones) > 1:
+                    return {"ambiguous": True, "desks": open_ones}
+                return None
+            text = (self.brain_dir / row["filepath"]).read_text(encoding="utf-8")
+            return {"slug": row["slug"], "project": row["project"],
+                    "title": row["title"], "status": row["status"],
+                    "filepath": row["filepath"], "updated_at": row["updated_at"],
+                    "text": text, "next_step": D.next_step(text)}
+
+    def list_desks(self, project: str | None = None, status: str | None = "open") -> list[dict]:
+        q = "SELECT slug, project, title, status, updated_at FROM desks WHERE 1=1"
+        args: list = []
+        if project:
+            q += " AND project = ?"; args.append(project)
+        if status:
+            q += " AND status = ?"; args.append(status)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(q + " ORDER BY updated_at DESC", args)]
+
+    def log_desk(self, slug: str | None = None, project: str | None = None,
+                 done: str | None = None, note: str | None = None,
+                 open_question: str | None = None,
+                 add: list[str] | None = None) -> dict:
+        """Spunta un passo e/o annota. Restituisce il prossimo passo."""
+        from . import desk as D
+        already = False
+        with self._write() as conn:
+            row = self._resolve_desk(conn, slug, project)
+            if row is None:
+                return {"error": "nessuna scrivania — dammi lo slug",
+                        "desks": self.list_desks(project=project)}
+            path = self.brain_dir / row["filepath"]
+            text = path.read_text(encoding="utf-8")
+            if done:
+                text, already = D.tick_step(text, done)
+            if note:
+                text = D.add_log(text, note, when=_utcnow()[11:16])
+            if open_question:
+                text = D.add_open(text, open_question)
+            if add:
+                text = D.add_steps(text, add)
+            now = _utcnow()
+            text = re.sub(r"^updated: .*$", f"updated: {now}", text, count=1, flags=re.M)
+            _atomic_write_text(path, text)
+            conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
+                         (now, row["slug"], row["project"]))
+        return {"slug": row["slug"], "already_done": already,
+                "next_step": D.next_step(text)}
+
+    def close_desk(self, slug: str, outcome: str, project: str | None = None,
+                   distil: str | None = None) -> dict:
+        """Chiude e archivia. Con `distil`, ne nasce UNA memoria collegata."""
+        project = project or "global"
+        memory_id = None
+        with self._write() as conn:
+            row = conn.execute("SELECT * FROM desks WHERE slug = ? AND project = ?",
+                               (slug, project)).fetchone()
+            if row is None:
+                return {"error": f"nessuna scrivania {project}/{slug}"}
+            src = self.brain_dir / row["filepath"]
+            dst = self._desk_path(project, slug, archived=True)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            text = src.read_text(encoding="utf-8")
+            text = re.sub(r"^status: .*$", f"status: {outcome}", text, count=1, flags=re.M)
+            _atomic_write_text(dst, text)
+            src.unlink(missing_ok=True)
+            rel = f"desks/{project}/archived/{slug}.md"
+            conn.execute(
+                "UPDATE desks SET status = ?, filepath = ?, updated_at = ? "
+                "WHERE slug = ? AND project = ?",
+                (outcome, rel, _utcnow(), slug, project))
+        if distil:
+            m = self.store_memory(
+                content=f"{distil}\n\nDalla scrivania [[{slug}]] ({outcome}).",
+                title=row["title"], project=project,
+                tags=["scrivania", outcome], category="note")
+            memory_id = m["id"]
+        self.append_log("desk_close", f"{project}/{slug} → {outcome}")
+        return {"slug": slug, "status": outcome, "memory_id": memory_id}
 
     def stats(self) -> dict:
         with self._conn() as conn:

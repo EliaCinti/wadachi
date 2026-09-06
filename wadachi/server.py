@@ -474,7 +474,39 @@ def _brain_proposals() -> list[str]:
     return props
 
 
-def _render_context_dense(context: dict, max_tokens: int) -> str:
+def _desk_block(project: str | None, budget: int) -> str:
+    """Il riassunto della scrivania, con un tetto proprio.
+
+    Entra nel bilancio di `get_context` come prima voce ma limitato, così una
+    scrivania lunga non svuota la lista delle memorie. Sotto il minimo si
+    riduce a titolo e prossimo passo, che è quanto basta per riprendere.
+    """
+    open_ones = store.list_desks(project=project, status="open")
+    if not open_ones:
+        return ""
+    if len(open_ones) > 1:
+        names = " · ".join(f"`{d['slug']}` ({d['title']})" for d in open_ones)
+        return f"## 🖿 scrivanie aperte\n{names}\n→ desk_read(slug)\n\n"
+
+    got = store.read_desk(open_ones[0]["slug"], project)
+    if not got:
+        return ""
+    head = (f"## 🖿 scrivania aperta — `{got['slug']}`\n"
+            f"**{got['title']}**\n"
+            f"Prossimo passo: **{got['next_step'] or '— piano finito, valuta di chiudere'}**\n")
+    if _est_tokens(head) > budget:
+        return f"## 🖿 scrivania `{got['slug']}` — prossimo: {got['next_step'] or 'finito'}\n\n"
+
+    body = ""
+    for label, marker in (("Obiettivo", "## Obiettivo"), ("Registro", "## Registro")):
+        chunk = got["text"].split(marker)[1].split("\n##")[0].strip() if marker in got["text"] else ""
+        first = next((l for l in chunk.split("\n") if l.strip()), "")
+        if first and _est_tokens(head + body + first) <= budget:
+            body += f"{label}: {first.strip()}\n"
+    return head + body + "→ desk_read() per il resto\n\n"
+
+
+def _render_context_dense(context: dict, max_tokens: int, project: str | None = None) -> str:
     """Formato a livelli (Fase 4.12/4.14): righe compatte con puntatori #id.
 
     Se il budget non basta, si tronca PER RILEVANZA (le memorie sono già
@@ -520,8 +552,10 @@ def _render_context_dense(context: dict, max_tokens: int) -> str:
             parts += ["## da rivedere"] + rev_lines[:n_rev]
         return "\n".join(parts + footer)
 
+    desk = _desk_block(project, max_tokens // 4)
+
     n_mem, n_dec, n_rev = len(mem_lines), len(dec_lines), len(rev_lines)
-    out = assemble(n_mem, n_dec, n_rev)
+    out = desk + assemble(n_mem, n_dec, n_rev)
     while _est_tokens(out) > max_tokens:
         if n_rev > 1:
             n_rev -= 1
@@ -531,7 +565,7 @@ def _render_context_dense(context: dict, max_tokens: int) -> str:
             n_mem -= 1
         else:
             break                      # sotto il minimo utile non si scende
-        out = assemble(n_mem, n_dec, n_rev)
+        out = desk + assemble(n_mem, n_dec, n_rev)
     return out
 
 
@@ -597,7 +631,7 @@ def get_context(
 
     if format == "json":
         return json.dumps(context, indent=2)
-    return _render_context_dense(context, max_tokens)
+    return _render_context_dense(context, max_tokens, project)
 
 
 @tool()

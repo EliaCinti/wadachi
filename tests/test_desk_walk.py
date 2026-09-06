@@ -19,19 +19,33 @@ def test_the_whole_walk_leaves_the_lesson_and_not_the_noise(s, tmp_path):
                  distil="La lezione: token_path va per provider.")
 
     fresh = MemoryStore(str(tmp_path / "brain"))
-    testi = " ".join(m["title"] + m.get("content", "") for m in fresh.list_memories())
-    assert "token_path" in " ".join(
-        fresh.get_memory(m["id"])["content"] for m in fresh.list_memories())
+    # list_memories() non porta il campo "content" (solo id/titolo/metadati):
+    # cercare il rumore lì sarebbe un controllo che non controlla niente.
+    # Il contenuto vero si legge solo con get_memory — per ogni memoria.
+    memorie = [fresh.get_memory(m["id"]) for m in fresh.list_memories()]
+    testi = " ".join(m["title"] + m["content"] for m in memorie)
+    assert "token_path" in testi
     assert "zxqrumore" not in testi
 
 
 def test_the_cap_is_reached_and_said(s):
-    """Il caso di Rizzo: dieci tentativi, e il decimo lo dice."""
+    """Il caso di Rizzo: dieci tentativi, e il decimo lo dice.
+
+    Non basta guardare l'ultima chiamata: un passo saltato o ripetuto per
+    errore lascerebbe comunque `next_step is None` alla decima. Si registra
+    la sequenza intera e si confronta con l'ordine atteso.
+    """
     d = s.open_desk("Ottimizzare", "Ridurre il tempo", "sotto i 2 secondi",
                     [f"tentativo {i}" for i in range(1, 11)], project="p")
+    passi_successivi = []
     for i in range(1, 11):
         out = s.log_desk(project="p", done=f"tentativo {i}",
                          note=f"provato {i}: ancora lento")
-    assert out["next_step"] is None, "il piano è finito: non si inventa un undicesimo"
+        passi_successivi.append(out["next_step"])
+    attesi = [f"tentativo {i}" for i in range(2, 11)] + [None]
+    assert passi_successivi == attesi, (
+        "ogni tentativo deve annunciare il successivo nell'ordine giusto, e "
+        "solo il decimo dice che il piano è finito — non se ne inventa un "
+        "undicesimo")
     got = s.read_desk(d["slug"], project="p")
     assert got["text"].count("provato") == 10

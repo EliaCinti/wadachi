@@ -197,7 +197,14 @@ From now on, every session can start with `get_context` and your AI already know
 
 ## Tools
 
-Wadachi exposes **31 MCP tools**, grouped by area.
+Wadachi exposes **37 MCP tools** — **26 in the menu** by default, the ones a
+session reaches for while working, grouped by area below. The other **11**
+are brain maintenance, marked *(maintenance)*: they stay out of the menu
+because measuring 741 real sessions showed they get chosen roughly once in
+total *during* work — but they are never gone, only a step further away, from
+the CLI (`wadachi sleep`, `wadachi doctor`) or by setting
+`WADACHI_TOOLSETS=work,maintenance` for a session that wants them back.
+`manual` prints the full description of every tool, in the menu or out.
 
 **Memory**
 
@@ -218,6 +225,9 @@ Wadachi exposes **31 MCP tools**, grouped by area.
 | `recall` | Semantic (or keyword) search across stored knowledge, annotated with belief status. |
 | `expand_memory` | Drill down from the compact context: full content of one or more memories by id. |
 | `brain_status` | Health check, search mode, stats, and registered projects. |
+| `brain_watermark` | The brain's current position (highest id per table) — take it before starting work. |
+| `changed_since` | What appeared in the brain after a watermark taken earlier — "what did I miss?" |
+| `manual` | Full description of every tool, in the menu and out — generated from the code, so it can't drift. |
 
 **Decisions**
 
@@ -233,6 +243,14 @@ Wadachi exposes **31 MCP tools**, grouped by area.
 | `register_project` | Map filesystem paths to a project name for auto-detection. |
 | `list_projects` | Show all registered projects. |
 
+**Desk**
+
+| Tool | What it does |
+|:-----|:-------------|
+| `desk` | Open, close, or list a desk — durable working state for a task in flight (the plan, the steps done, where it stopped). |
+| `desk_read` | Pick a desk's thread back up: the plan, the next step, and what was already tried and failed. |
+| `desk_log` | Tick the step that landed, note what did not work, and get back the next step. |
+
 **Constellation — Graph**
 
 | Tool | What it does |
@@ -240,17 +258,17 @@ Wadachi exposes **31 MCP tools**, grouped by area.
 | `recall_associative` | Spreading-activation recall over the memory graph (HippoRAG-style PPR); returns the cosine baseline too. |
 | `related_memories` | Show the memories most strongly linked to a given one (typed neighbours). |
 | `memory_graph` | Graph overview: hubs, orphans, components, a Mermaid backbone + the entity graph. |
-| `rebuild_entity_graph` | (Re)build the Graphify entity knowledge graph via the local `claude` CLI ($0). |
+| `rebuild_entity_graph` | (Re)build the Graphify entity knowledge graph via the local `claude` CLI ($0). *(maintenance)* |
 
 **Belief Revision**
 
 | Tool | What it does |
 |:-----|:-------------|
-| `review_beliefs` | Read-only scan for memories likely gone stale (superseded / temporal / provisional). |
-| `set_belief` | Update a memory's belief envelope: confidence, status, validity, supersession. |
+| `review_beliefs` | Read-only scan for memories likely gone stale (superseded / temporal / provisional). *(maintenance)* |
+| `set_belief` | Update a memory's belief envelope: confidence, status, validity, supersession. *(maintenance)* |
 | `flag_stale` | Mark a memory stale — kept and recoverable, but annotated in recall. |
 
-**Reflection & Insights**
+**Reflection & Insights** *(all maintenance)*
 
 | Tool | What it does |
 |:-----|:-------------|
@@ -259,7 +277,7 @@ Wadachi exposes **31 MCP tools**, grouped by area.
 | `accept_insight` | Accept an insight and promote it to a real memory linked to its sources. |
 | `reject_insight` | Reject an insight (kept on record, marked rejected). |
 
-**Procedural Memory**
+**Procedural Memory** *(maintenance)*
 
 | Tool | What it does |
 |:-----|:-------------|
@@ -269,9 +287,9 @@ Wadachi exposes **31 MCP tools**, grouped by area.
 
 | Tool | What it does |
 |:-----|:-------------|
-| `consolidate` | Propose groups of redundant memories to merge (read-only, you review). |
-| `merge_memories` | Store your synthesis as a new memory; sources marked superseded, never deleted. |
-| `sleep` | The brain's sleep: graph communities → merge candidates, fading leaves → decay candidates. Read-only. |
+| `consolidate` | Propose groups of redundant memories to merge (read-only, you review). *(maintenance)* |
+| `merge_memories` | Store your synthesis as a new memory; sources marked superseded, never deleted. *(maintenance)* |
+| `sleep` | The brain's sleep: graph communities → merge candidates, fading leaves → decay candidates. Read-only. *(maintenance)* |
 
 **Provenance & Time**
 

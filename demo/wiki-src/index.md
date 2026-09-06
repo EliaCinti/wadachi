@@ -4,7 +4,7 @@
 local-first memory server for AI agents, spoken over MCP. Your sessions leave tracks;
 future sessions follow them.
 
-This wiki covers **everything**: how the brain works, every one of the 31 tools, every
+This wiki covers **everything**: how the brain works, every one of the 37 tools, every
 CLI command, every safety mechanism, and the honest answers in the [[faq]].
 
 > Meta-note: this wiki is itself built the way wadachi's brain is built — markdown

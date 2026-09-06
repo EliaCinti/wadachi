@@ -4,6 +4,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 
 # ── CRUD di base e casi limite ────────────────────────────────
 
@@ -153,6 +155,139 @@ def test_register_and_detect_project(store, tmp_path):
 
 def test_detect_project_unknown_path(store):
     assert store.detect_project("/percorso/che/non/esiste") is None
+
+
+# ── Rilevamento del progetto: i tre modi in cui sbagliava bersaglio ────
+
+
+def test_a_sibling_directory_is_not_the_project(store, tmp_path):
+    """`overmind-site-v2` non è `overmind`: il confronto è fra percorsi, non fra stringhe."""
+    proj = tmp_path / "overmind"
+    proj.mkdir()
+    (tmp_path / "overmind-site-v2").mkdir()
+    (tmp_path / "overmind-backup").mkdir()
+    store.register_project("overmind", "", [str(proj)])
+
+    assert store.detect_project(str(proj)) == "overmind"
+    assert store.detect_project(str(tmp_path / "overmind-site-v2")) is None
+    assert store.detect_project(str(tmp_path / "overmind-backup")) is None
+
+
+def test_the_most_specific_project_wins(store, tmp_path):
+    """Un progetto dentro un altro vince: è il più specifico a descrivere dove sei.
+
+    Il caso reale: `feynotes` su `University/`, `studycoach` su `University/StudyCoach`.
+    Prima vinceva la riga che il database restituiva per prima — cioè il caso.
+    """
+    uni = tmp_path / "University"
+    coach = uni / "StudyCoach"
+    esame = uni / "esami" / "Campi elettromagnetici"
+    esame.mkdir(parents=True)
+    coach.mkdir(parents=True)
+    store.register_project("feynotes", "", [str(uni)])
+    store.register_project("studycoach", "", [str(coach)])
+    store.register_project("cem", "", [str(esame)])
+
+    assert store.detect_project(str(uni)) == "feynotes"
+    assert store.detect_project(str(uni / "altro")) == "feynotes"
+    assert store.detect_project(str(coach)) == "studycoach"
+    assert store.detect_project(str(coach / "output" / "benchmark")) == "studycoach"
+    assert store.detect_project(str(esame)) == "cem"
+
+
+def test_detection_does_not_depend_on_registration_order(store, tmp_path):
+    """Registrati al contrario, il verdetto è lo stesso: deterministico, non fortunato."""
+    uni = tmp_path / "University"
+    coach = uni / "StudyCoach"
+    coach.mkdir(parents=True)
+    store.register_project("studycoach", "", [str(coach)])
+    store.register_project("feynotes", "", [str(uni)])
+
+    assert store.detect_project(str(coach)) == "studycoach"
+
+
+def test_a_project_without_paths_never_matches(store, tmp_path):
+    """Un progetto senza percorsi non può essere rilevato, e non fa inciampare gli altri."""
+    proj = tmp_path / "reale"
+    proj.mkdir()
+    store.register_project("senza-percorsi", "", [])
+    store.register_project("reale", "", [str(proj)])
+
+    assert store.detect_project(str(proj)) == "reale"
+
+
+# ── Il marcatore: una dichiarazione batte ogni inferenza ──────────────
+
+
+def test_a_marker_file_names_the_project(store, tmp_path):
+    """`.wadachi` con `project: x` decide, senza che nulla sia registrato."""
+    proj = tmp_path / "un-progetto-mai-registrato"
+    proj.mkdir()
+    (proj / ".wadachi").write_text("project: fisica\n")
+
+    assert store.detect_project(str(proj)) == "fisica"
+
+
+def test_a_marker_is_found_from_a_subdirectory(store, tmp_path):
+    """Come `.git`: si risale finché non lo si trova."""
+    proj = tmp_path / "proj"
+    deep = proj / "src" / "moduli" / "interni"
+    deep.mkdir(parents=True)
+    (proj / ".wadachi").write_text("project: profondo\n")
+
+    assert store.detect_project(str(deep)) == "profondo"
+
+
+def test_the_nearest_marker_wins(store, tmp_path):
+    """Un marcatore più vicino descrive meglio dove sei di uno più in alto."""
+    outer = tmp_path / "fuori"
+    inner = outer / "dentro"
+    inner.mkdir(parents=True)
+    (outer / ".wadachi").write_text("project: esterno\n")
+    (inner / ".wadachi").write_text("project: interno\n")
+
+    assert store.detect_project(str(outer)) == "esterno"
+    assert store.detect_project(str(inner)) == "interno"
+
+
+def test_a_marker_beats_a_registered_path(store, tmp_path):
+    """Quello che dichiari vince su quello che si deduce — anche se più specifico."""
+    proj = tmp_path / "University" / "StudyCoach"
+    proj.mkdir(parents=True)
+    store.register_project("feynotes", "", [str(tmp_path / "University")])
+    (proj / ".wadachi").write_text("project: studycoach\n")
+
+    assert store.detect_project(str(proj)) == "studycoach"
+
+
+def test_an_unreadable_or_empty_marker_falls_back_to_paths(store, tmp_path):
+    """Un marcatore che non dice niente non deve rompere il rilevamento."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    store.register_project("dai-percorsi", "", [str(proj)])
+
+    (proj / ".wadachi").write_text("")
+    assert store.detect_project(str(proj)) == "dai-percorsi"
+
+    (proj / ".wadachi").write_text("non c'e' nessuna chiave qui\n")
+    assert store.detect_project(str(proj)) == "dai-percorsi"
+
+
+def test_a_marker_directory_is_not_a_marker(store, tmp_path):
+    """`.wadachi` come cartella (un brain!) non è una dichiarazione di progetto."""
+    home = tmp_path / "finta-home"
+    (home / ".wadachi").mkdir(parents=True)
+    assert store.detect_project(str(home)) is None
+
+
+def test_a_trailing_slash_in_a_registered_path_is_harmless(store, tmp_path):
+    """`engram` è registrato come `/…/engram/`: la barra finale non deve cambiare nulla."""
+    proj = tmp_path / "engram"
+    proj.mkdir()
+    store.register_project("engram", "", [str(proj) + "/"])
+
+    assert store.detect_project(str(proj)) == "engram"
+    assert store.detect_project(str(proj / "wadachi")) == "engram"
 
 
 # ── Insights ──────────────────────────────────────────────────
@@ -376,3 +511,48 @@ def test_concurrent_writes_across_processes(tmp_path):
         f"solo nel db: {sorted(in_db - on_disk)}"
     )
     assert len({m["id"] for m in rows}) == expected, "id duplicati"
+
+
+# ── Il brain fantasma: un default non è un'intenzione ─────────────────
+
+
+def test_an_explicit_brain_dir_is_created(tmp_path):
+    """Chiedere una directory precisa è un'intenzione: si crea, come sempre."""
+    from wadachi.store import MemoryStore
+    s = MemoryStore(str(tmp_path / "nuovo"))
+    assert (s.brain_dir / "brain.db").exists()
+
+
+def test_a_missing_default_brain_is_refused_not_invented(tmp_path, monkeypatch):
+    """Cadere su un default e non trovare nulla è un incidente, non una richiesta.
+
+    È così che nascono due brain: uno vero altrove, e uno vuoto qui che sembra
+    funzionare. Meglio una frase che dice cosa fare.
+    """
+    from wadachi.store import MemoryStore, BrainNotFound
+    monkeypatch.delenv("BRAIN_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    with pytest.raises(BrainNotFound) as e:
+        MemoryStore()
+    msg = str(e.value)
+    assert "BRAIN_DIR" in msg and "wadachi init" in msg
+
+
+def test_the_default_brain_is_used_when_it_exists(tmp_path, monkeypatch):
+    """Se il brain di default c'è, si apre senza storie."""
+    from wadachi.store import MemoryStore
+    monkeypatch.delenv("BRAIN_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    MemoryStore(str(tmp_path / ".wadachi"))          # lo crea esplicitamente
+    s = MemoryStore()                                 # ora il default esiste
+    assert s.brain_dir == (tmp_path / ".wadachi")
+
+
+def test_creation_can_be_asked_for_explicitly(tmp_path, monkeypatch):
+    """`wadachi init` deve poter creare il brain di default: create=True."""
+    from wadachi.store import MemoryStore
+    monkeypatch.delenv("BRAIN_DIR", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    s = MemoryStore(create=True)
+    assert s.brain_dir == (tmp_path / ".wadachi")
+    assert (s.brain_dir / "brain.db").exists()

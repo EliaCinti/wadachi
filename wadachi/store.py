@@ -41,12 +41,41 @@ def _atomic_write_text(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+MARKER_FILE = ".wadachi"
+"""Il file che dichiara a quale progetto appartiene una cartella (`project: nome`)."""
+
+
+class BrainNotFound(RuntimeError):
+    """Nessun brain dove si sarebbe guardato per difetto, e nessuno l'ha chiesto."""
+
+
+def default_brain_dir() -> Path:
+    """Dove vive il brain quando nessuno lo dice: `~/.wadachi`, o il legacy `~/.engram`."""
+    legacy = Path(os.path.expanduser("~/.engram"))
+    return legacy if legacy.is_dir() else Path(os.path.expanduser("~/.wadachi"))
+
+
 class MemoryStore:
-    def __init__(self, brain_dir: Optional[str] = None):
-        # default: ~/.wadachi, ma un brain legacy in ~/.engram continua a funzionare
-        _legacy = os.path.expanduser("~/.engram")
-        _default = _legacy if os.path.isdir(_legacy) else os.path.expanduser("~/.wadachi")
-        self.brain_dir = Path(brain_dir or os.environ.get("BRAIN_DIR", _default))
+    def __init__(self, brain_dir: Optional[str] = None, create: Optional[bool] = None):
+        """Apre un brain.
+
+        `create` decide cosa fare se la directory non esiste. Per difetto vale
+        la regola imparata trovandosi con due brain sulla stessa macchina:
+        **chiedere una directory è un'intenzione, cadere su un default è un
+        incidente.** Un percorso esplicito (o `BRAIN_DIR`) viene creato come
+        sempre; il default, se manca, viene rifiutato con una frase invece di
+        essere inventato vuoto — perché un brain vuoto che sembra funzionare
+        costa più di un errore. `wadachi init` passa `create=True`.
+        """
+        asked = brain_dir or os.environ.get("BRAIN_DIR")
+        self.brain_dir = Path(asked) if asked else default_brain_dir()
+        if create is None:
+            create = bool(asked)
+        if not create and not self.brain_dir.is_dir():
+            raise BrainNotFound(
+                f"nessun brain in {self.brain_dir}. Indica quello giusto con "
+                f"BRAIN_DIR=/percorso/al/brain, oppure creane uno con `wadachi init`."
+            )
         self.brain_dir.mkdir(parents=True, exist_ok=True)
         (self.brain_dir / "global").mkdir(exist_ok=True)
         (self.brain_dir / "projects").mkdir(exist_ok=True)
@@ -511,16 +540,77 @@ class MemoryStore:
             )
         return {"name": name, "description": description, "paths": paths}
 
+    @staticmethod
+    def _marker_project(cwd: str) -> str | None:
+        """Il progetto dichiarato da un file `.wadachi`, risalendo come fa `.git`.
+
+        Una dichiarazione non è un'inferenza: se il file c'è, non c'è niente da
+        dedurre. Vale per una cartella mai registrata, sopravvive a uno
+        spostamento su un altro disco, e si trova da qualunque sottodirectory.
+        Vince il marcatore più vicino, che è quello che descrive più da vicino
+        dove sei.
+
+        Un `.wadachi` che è una *directory* non è un marcatore: è un brain.
+        """
+        try:
+            here = Path(os.path.realpath(cwd))
+        except (OSError, ValueError):
+            return None
+        for d in (here, *here.parents):
+            marker = d / MARKER_FILE
+            try:
+                if not marker.is_file():
+                    continue
+                text = marker.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for line in text.splitlines():
+                key, sep, value = line.partition(":")
+                if sep and key.strip().lower() == "project" and value.strip():
+                    return value.strip()
+            # un marcatore muto non parla per i suoi genitori: si smette qui
+            return None
+        return None
+
     def detect_project(self, cwd: str) -> str | None:
-        """Detect project from current working directory."""
-        cwd = os.path.realpath(cwd)
+        """Il progetto a cui appartiene una directory, o None.
+
+        Un file `.wadachi` che dichiara `project: nome` vince su tutto: è una
+        dichiarazione, non una deduzione. In sua assenza si guardano i percorsi
+        registrati, con due regole imparate da errori reali:
+
+        1. **Confine di percorso, non prefisso di stringa.** `str.startswith`
+           faceva di `…/overmind-site-v2` un `overmind`, perché il nome comincia
+           allo stesso modo. Confrontiamo `Path.parts`, dove `overmind-site-v2`
+           e `overmind` sono semplicemente segmenti diversi.
+        2. **Vince il più specifico.** Con `feynotes` su `University/` e
+           `studycoach` su `University/StudyCoach/`, la vecchia versione
+           restituiva la prima riga che il database le dava — quindi il verdetto
+           dipendeva dall'ordine di inserimento, e `studycoach` era di fatto
+           irraggiungibile. Ora vince la corrispondenza con più segmenti, che è
+           il progetto che descrive più da vicino dove sei.
+        """
+        declared = self._marker_project(cwd)
+        if declared:
+            return declared
+        try:
+            here = Path(os.path.realpath(cwd)).parts
+        except (OSError, ValueError):
+            return None
         with self._conn() as conn:
             rows = conn.execute("SELECT name, paths FROM projects").fetchall()
+
+        best: tuple[int, str] | None = None
         for row in rows:
             for path in json.loads(row["paths"]):
-                if cwd.startswith(os.path.realpath(path)):
-                    return row["name"]
-        return None
+                if not path:
+                    continue
+                base = Path(os.path.realpath(path)).parts
+                if here[: len(base)] != base:
+                    continue
+                if best is None or len(base) > best[0]:
+                    best = (len(base), row["name"])
+        return best[1] if best else None
 
     def list_projects(self) -> list[dict]:
         with self._conn() as conn:

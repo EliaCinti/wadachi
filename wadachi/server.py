@@ -1153,6 +1153,89 @@ def review_procedures(project: str | None = None) -> str:
     return json.dumps({"candidate_rules": rules, "count": len(rules)}, indent=2)
 
 
+# ── La scrivania: lo stato del lavoro in corso ────────────────
+
+
+@tool()
+def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
+         plan: list[str] | None = None, slug: str = "", outcome: str = "done",
+         distil: str = "", project: str | None = None) -> str:
+    """Use this when a piece of work will outlive this conversation: open a desk
+    at the start, close it when it lands.
+
+    A desk is the working state a session cannot carry — the plan, what has been
+    tried and failed, where the thread was dropped. Memories hold what you
+    learned; a desk holds what you are doing.
+
+    Args:
+        action: "open", "close" or "list".
+        title: open — a short name for the thread of work.
+        objective: open — what this work is for.
+        done_when: open — how a machine (or you) can tell it is finished.
+            Required: without it a desk is a diary, not a desk.
+        plan: open — the steps, as a list. Thinking them through now is half the value.
+        slug: close — which desk (the id `open` returned).
+        outcome: close — "done" or "abandoned". An abandoned desk is often worth
+            more than a clean one: it says what does not work.
+        distil: close — the lesson worth keeping. Given, it becomes a real
+            memory linked to the archived desk; omitted, nothing is stored, and
+            that is a fine answer for work that taught nothing.
+        project: defaults to the project detected from the working directory.
+    """
+    project = project or store.detect_project(os.getcwd()) or "global"
+    try:
+        if action == "open":
+            return json.dumps(store.open_desk(title, objective, done_when,
+                                              plan or [], project), indent=2)
+        if action == "close":
+            return json.dumps(store.close_desk(slug, outcome, project,
+                                               distil or None), indent=2)
+        if action == "list":
+            return json.dumps(store.list_desks(project, status=None), indent=2)
+        return json.dumps({"error": f"action sconosciuta: {action}"}, indent=2)
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, indent=2)
+
+
+@tool()
+def desk_read(slug: str = "", project: str | None = None) -> str:
+    """Use this when you are picking work back up and need to know where it
+    stopped — the plan, the next step, and what was already tried and failed.
+
+    Without a slug it opens the one desk left open in this project; if several
+    are open it lists them rather than guessing.
+    """
+    project = project or store.detect_project(os.getcwd()) or "global"
+    got = store.read_desk(slug or None, project)
+    if got is None:
+        return json.dumps({"desks": store.list_desks(project),
+                           "note": "nessuna scrivania aperta qui"}, indent=2)
+    return json.dumps(got, indent=2)
+
+
+@tool()
+def desk_log(slug: str = "", done: str = "", note: str = "",
+             open_question: str = "", add: list[str] | None = None,
+             project: str | None = None) -> str:
+    """Use this after every attempt on a desk: tick the step that landed, and
+    write down what failed and why.
+
+    The failures are the point — they are what stops the next attempt from
+    repeating this one. Returns the next unfinished step, so this is also how
+    you ask "what now?".
+
+    Args:
+        done: the exact label of the step that is finished.
+        note: what happened, especially when it did not work.
+        open_question: something unresolved that is not a step.
+        add: steps discovered along the way.
+    """
+    project = project or store.detect_project(os.getcwd()) or "global"
+    return json.dumps(store.log_desk(slug or None, project, done or None,
+                                     note or None, open_question or None,
+                                     add or None), indent=2)
+
+
 # ── Il manuale: «tipo man», su richiesta e non in ogni sessione ──
 #
 # Progressive disclosure (guida MCP client best practices): la descrizione

@@ -155,6 +155,75 @@ def test_detect_project_unknown_path(store):
     assert store.detect_project("/percorso/che/non/esiste") is None
 
 
+# ── Rilevamento del progetto: i tre modi in cui sbagliava bersaglio ────
+
+
+def test_a_sibling_directory_is_not_the_project(store, tmp_path):
+    """`overmind-site-v2` non è `overmind`: il confronto è fra percorsi, non fra stringhe."""
+    proj = tmp_path / "overmind"
+    proj.mkdir()
+    (tmp_path / "overmind-site-v2").mkdir()
+    (tmp_path / "overmind-backup").mkdir()
+    store.register_project("overmind", "", [str(proj)])
+
+    assert store.detect_project(str(proj)) == "overmind"
+    assert store.detect_project(str(tmp_path / "overmind-site-v2")) is None
+    assert store.detect_project(str(tmp_path / "overmind-backup")) is None
+
+
+def test_the_most_specific_project_wins(store, tmp_path):
+    """Un progetto dentro un altro vince: è il più specifico a descrivere dove sei.
+
+    Il caso reale: `feynotes` su `University/`, `studycoach` su `University/StudyCoach`.
+    Prima vinceva la riga che il database restituiva per prima — cioè il caso.
+    """
+    uni = tmp_path / "University"
+    coach = uni / "StudyCoach"
+    esame = uni / "esami" / "Campi elettromagnetici"
+    esame.mkdir(parents=True)
+    coach.mkdir(parents=True)
+    store.register_project("feynotes", "", [str(uni)])
+    store.register_project("studycoach", "", [str(coach)])
+    store.register_project("cem", "", [str(esame)])
+
+    assert store.detect_project(str(uni)) == "feynotes"
+    assert store.detect_project(str(uni / "altro")) == "feynotes"
+    assert store.detect_project(str(coach)) == "studycoach"
+    assert store.detect_project(str(coach / "output" / "benchmark")) == "studycoach"
+    assert store.detect_project(str(esame)) == "cem"
+
+
+def test_detection_does_not_depend_on_registration_order(store, tmp_path):
+    """Registrati al contrario, il verdetto è lo stesso: deterministico, non fortunato."""
+    uni = tmp_path / "University"
+    coach = uni / "StudyCoach"
+    coach.mkdir(parents=True)
+    store.register_project("studycoach", "", [str(coach)])
+    store.register_project("feynotes", "", [str(uni)])
+
+    assert store.detect_project(str(coach)) == "studycoach"
+
+
+def test_a_project_without_paths_never_matches(store, tmp_path):
+    """Un progetto senza percorsi non può essere rilevato, e non fa inciampare gli altri."""
+    proj = tmp_path / "reale"
+    proj.mkdir()
+    store.register_project("senza-percorsi", "", [])
+    store.register_project("reale", "", [str(proj)])
+
+    assert store.detect_project(str(proj)) == "reale"
+
+
+def test_a_trailing_slash_in_a_registered_path_is_harmless(store, tmp_path):
+    """`engram` è registrato come `/…/engram/`: la barra finale non deve cambiare nulla."""
+    proj = tmp_path / "engram"
+    proj.mkdir()
+    store.register_project("engram", "", [str(proj) + "/"])
+
+    assert store.detect_project(str(proj)) == "engram"
+    assert store.detect_project(str(proj / "wadachi")) == "engram"
+
+
 # ── Insights ──────────────────────────────────────────────────
 
 

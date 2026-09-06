@@ -3,6 +3,32 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [Unreleased]
+
+### Fixed — due dei sette progetti non erano rilevabili, e nessuno lo diceva
+
+`detect_project` confrontava percorsi con `str.startswith` e restituiva la prima
+riga che il database le passava. Due conseguenze, entrambe misurate su un brain
+reale prima di toccare il codice.
+
+**Un progetto dentro un altro era irraggiungibile.** Con `feynotes` registrato su
+`University/` e `studycoach` su `University/StudyCoach/`, stare dentro StudyCoach
+rispondeva `feynotes` — e lo stesso per `cem`, due cartelle più in basso. Non era
+neppure sbagliato in modo stabile: senza `ORDER BY`, il verdetto dipendeva
+dall'ordine di inserimento. Ogni memoria salvata da lì senza nominare il progetto
+a mano è finita nello scaffale sbagliato, in silenzio.
+
+**E una cartella sorella veniva assorbita per omonimia.** `…/overmind-site-v2` e
+`…/overmind-backup` risultavano entrambe `overmind`, perché la stringa comincia
+allo stesso modo. Che nel primo caso fosse anche semanticamente giusto è stata
+una coincidenza, non una scelta.
+
+Ora il confronto è fra segmenti di percorso, non fra stringhe, e fra tutte le
+corrispondenze vince **la più specifica** — il progetto che descrive più da
+vicino dove sei. Il risultato non dipende più dall'ordine delle righe. Cinque
+test lo tengono, compresi la barra finale di un percorso registrato e un progetto
+senza percorsi.
+
 ## [0.15.0] — 2026-08-13
 
 ### Added — sapere che qualcun altro ha toccato la stessa cosa (Overmind ADR-0026)

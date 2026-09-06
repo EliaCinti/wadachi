@@ -512,15 +512,39 @@ class MemoryStore:
         return {"name": name, "description": description, "paths": paths}
 
     def detect_project(self, cwd: str) -> str | None:
-        """Detect project from current working directory."""
-        cwd = os.path.realpath(cwd)
+        """Il progetto a cui appartiene una directory, o None.
+
+        Due regole, entrambe imparate da errori reali:
+
+        1. **Confine di percorso, non prefisso di stringa.** `str.startswith`
+           faceva di `…/overmind-site-v2` un `overmind`, perché il nome comincia
+           allo stesso modo. Confrontiamo `Path.parts`, dove `overmind-site-v2`
+           e `overmind` sono semplicemente segmenti diversi.
+        2. **Vince il più specifico.** Con `feynotes` su `University/` e
+           `studycoach` su `University/StudyCoach/`, la vecchia versione
+           restituiva la prima riga che il database le dava — quindi il verdetto
+           dipendeva dall'ordine di inserimento, e `studycoach` era di fatto
+           irraggiungibile. Ora vince la corrispondenza con più segmenti, che è
+           il progetto che descrive più da vicino dove sei.
+        """
+        try:
+            here = Path(os.path.realpath(cwd)).parts
+        except (OSError, ValueError):
+            return None
         with self._conn() as conn:
             rows = conn.execute("SELECT name, paths FROM projects").fetchall()
+
+        best: tuple[int, str] | None = None
         for row in rows:
             for path in json.loads(row["paths"]):
-                if cwd.startswith(os.path.realpath(path)):
-                    return row["name"]
-        return None
+                if not path:
+                    continue
+                base = Path(os.path.realpath(path)).parts
+                if here[: len(base)] != base:
+                    continue
+                if best is None or len(base) > best[0]:
+                    best = (len(base), row["name"])
+        return best[1] if best else None
 
     def list_projects(self) -> list[dict]:
         with self._conn() as conn:

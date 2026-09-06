@@ -989,6 +989,8 @@ class MemoryStore:
         """Spunta un passo e/o annota. Restituisce il prossimo passo."""
         from . import desk as D
         tick_status: str | None = None
+        missing: tuple[str, str] | None = None
+        text = ""
         with self._write() as conn:
             row = self._resolve_desk(conn, slug, project)
             if row is None:
@@ -998,26 +1000,28 @@ class MemoryStore:
             try:
                 text = path.read_text(encoding="utf-8")
             except FileNotFoundError:
-                conn.execute("DELETE FROM desks WHERE slug = ? AND project = ?",
-                             (row["slug"], row["project"]))
-                return {"error": f"il file della scrivania «{row['slug']}» non "
-                                  f"c'è più — rimossa dall'indice (cancellata o "
-                                  f"spostata a mano?)",
-                        "slug": row["slug"], "project": row["project"],
-                        "missing_file": True}
-            if done:
-                text, tick_status = D.tick_step(text, done)
-            if note:
-                text = D.add_log(text, note, when=_utcnow()[11:16])
-            if open_question:
-                text = D.add_open(text, open_question)
-            if add:
-                text = D.add_steps(text, add)
-            now = _utcnow()
-            text = D.set_meta(text, "updated", now)
-            _atomic_write_text(path, text)
-            conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
-                         (now, row["slug"], row["project"]))
+                # Il file è sparito. Qui dentro non si tocca l'indice: si
+                # lascia che questa transazione (che non ha ancora scritto
+                # nulla) chiuda da sola, e si passa la mano a
+                # _forget_missing_desk *dopo* — che apre la propria
+                # `_write()`, e annidarla qui raddoppierebbe il lock.
+                missing = (row["slug"], row["project"])
+            else:
+                if done:
+                    text, tick_status = D.tick_step(text, done)
+                if note:
+                    text = D.add_log(text, note, when=_utcnow()[11:16])
+                if open_question:
+                    text = D.add_open(text, open_question)
+                if add:
+                    text = D.add_steps(text, add)
+                now = _utcnow()
+                text = D.set_meta(text, "updated", now)
+                _atomic_write_text(path, text)
+                conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
+                             (now, row["slug"], row["project"]))
+        if missing:
+            return self._forget_missing_desk(*missing)
         next_step = D.next_step(text)
         result = {"slug": row["slug"], "already_done": tick_status == "already",
                    "next_step": next_step}

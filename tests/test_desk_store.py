@@ -103,6 +103,25 @@ def test_logging_to_a_desk_whose_file_was_deleted_does_not_crash(s):
     assert "error" in out
 
 
+def test_a_missing_desk_file_leaves_a_trace_whichever_tool_finds_it(s):
+    """read_desk registrava `desk_missing` nel log delle operazioni,
+    log_desk lo cancellava in silenzio — una cancellazione senza traccia,
+    l'unica cosa che questo progetto non accetta. Ora passano dallo stesso
+    punto (_forget_missing_desk): qualunque strumento scopra il file
+    sparito, il log lo sa."""
+    via_read = _open(s, title="via read_desk")
+    (s.brain_dir / via_read["filepath"]).unlink()
+    s.read_desk(via_read["slug"], project="overmind")
+
+    via_log = _open(s, title="via log_desk")
+    (s.brain_dir / via_log["filepath"]).unlink()
+    s.log_desk(via_log["slug"], project="overmind", done="leggere")
+
+    log = (s.brain_dir / "log.md").read_text(encoding="utf-8")
+    assert f"desk_missing — overmind/{via_read['slug']}" in log
+    assert f"desk_missing — overmind/{via_log['slug']}" in log
+
+
 def test_closing_updates_the_files_updated_frontmatter_too(s):
     """close_desk aggiornava `updated_at` nel DB ma non `updated:` nel file,
     mentre `status:` sì — un'incoerenza economica da chiudere."""

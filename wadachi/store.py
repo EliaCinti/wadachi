@@ -32,6 +32,10 @@ def _slugify(text: str) -> str:
     return text[:80].strip("-")
 
 
+def _utcnow() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     """Write a file atomically: a concurrent reader (or writer) never sees a
     torn/half-written file. Write to a unique temp file in the same directory,
@@ -882,6 +886,212 @@ class MemoryStore:
         if project == "global":
             return self.brain_dir / "global"
         return self.brain_dir / "projects" / project
+
+    # ── La scrivania (P1) ─────────────────────────────────────
+
+    def _desk_dir(self, project: str) -> Path:
+        return self.brain_dir / "desks" / project
+
+    def _desk_path(self, project: str, slug: str, archived: bool = False) -> Path:
+        base = self._desk_dir(project)
+        return (base / "archived" / f"{slug}.md") if archived else (base / f"{slug}.md")
+
+    def open_desk(self, title: str, objective: str, done_when: str,
+                  plan: list[str] | None = None, project: str = "global") -> dict:
+        """Apre una scrivania. `done_when` è la condizione d'arresto: obbligatoria."""
+        from . import desk as D
+        if not (done_when or "").strip():
+            raise ValueError(
+                "una scrivania senza «fatto quando» è un diario: dì come si "
+                "riconosce che il lavoro è finito"
+            )
+        with self._write() as conn:
+            taken = {r["slug"] for r in conn.execute(
+                "SELECT slug FROM desks WHERE project = ?", (project,))}
+            slug = D.desk_slug(title, taken)
+            now = _utcnow()
+            rel = f"desks/{project}/{slug}.md"
+            text = D.render_desk(
+                meta={"slug": slug, "title": title, "project": project,
+                      "status": "open", "created": now, "updated": now},
+                objective=objective, done_when=done_when, plan=plan or [])
+            path = self._desk_path(project, slug)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(path, text)
+            conn.execute(
+                "INSERT INTO desks (slug, project, title, status, created_at, "
+                "updated_at, filepath) VALUES (?, ?, ?, 'open', ?, ?, ?)",
+                (slug, project, title, now, now, rel))
+        self.append_log("desk_open", f"{project}/{slug}")
+        return {"slug": slug, "project": project, "title": title, "filepath": rel}
+
+    def _resolve_desk(self, conn, slug: str | None, project: str | None):
+        if slug:
+            return conn.execute(
+                "SELECT * FROM desks WHERE slug = ? AND project = ?",
+                (slug, project or "global")).fetchone()
+        rows = conn.execute(
+            "SELECT * FROM desks WHERE status = 'open'"
+            + (" AND project = ?" if project else "")
+            + " ORDER BY updated_at DESC",
+            ((project,) if project else ())).fetchall()
+        return rows[0] if len(rows) == 1 else None
+
+    def _forget_missing_desk(self, slug: str, project: str) -> dict:
+        """Il file dietro una riga indicizzata è sparito — cancellato o
+        spostato a mano, per esempio dentro Obsidian, che il progetto invita
+        esplicitamente a fare. La riga non ha più un file da rivendicare,
+        quindi esce dall'indice invece di restare a puntare sul nulla: la
+        prossima `open_desk` con lo stesso titolo può riusare lo slug senza
+        collidere con un fantasma. Chi ha chiamato lo sa in chiaro — mai
+        un'eccezione per un file che l'utente ha cancellato apposta."""
+        with self._write() as conn:
+            conn.execute("DELETE FROM desks WHERE slug = ? AND project = ?",
+                         (slug, project))
+        self.append_log("desk_missing", f"{project}/{slug}")
+        return {"error": f"il file della scrivania «{slug}» non c'è più — "
+                          f"rimossa dall'indice (cancellata o spostata a mano?)",
+                "slug": slug, "project": project, "missing_file": True}
+
+    def read_desk(self, slug: str | None = None, project: str | None = None) -> dict | None:
+        """La scrivania e il suo prossimo passo. Senza slug: l'unica aperta."""
+        from . import desk as D
+        with self._conn() as conn:
+            row = self._resolve_desk(conn, slug, project)
+            if row is None:
+                open_ones = self.list_desks(project=project)
+                if len(open_ones) > 1:
+                    return {"ambiguous": True, "desks": open_ones}
+                return None
+        try:
+            text = (self.brain_dir / row["filepath"]).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return self._forget_missing_desk(row["slug"], row["project"])
+        return {"slug": row["slug"], "project": row["project"],
+                "title": row["title"], "status": row["status"],
+                "filepath": row["filepath"], "updated_at": row["updated_at"],
+                "text": text, "next_step": D.next_step(text)}
+
+    def list_desks(self, project: str | None = None, status: str | None = "open") -> list[dict]:
+        q = "SELECT slug, project, title, status, updated_at FROM desks WHERE 1=1"
+        args: list = []
+        if project:
+            q += " AND project = ?"; args.append(project)
+        if status:
+            q += " AND status = ?"; args.append(status)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(q + " ORDER BY updated_at DESC", args)]
+
+    def log_desk(self, slug: str | None = None, project: str | None = None,
+                 done: str | None = None, note: str | None = None,
+                 open_question: str | None = None,
+                 add: list[str] | None = None) -> dict:
+        """Spunta un passo e/o annota. Restituisce il prossimo passo."""
+        from . import desk as D
+        tick_status: str | None = None
+        missing: tuple[str, str] | None = None
+        text = ""
+        with self._write() as conn:
+            row = self._resolve_desk(conn, slug, project)
+            if row is None:
+                return {"error": "nessuna scrivania — dammi lo slug",
+                        "desks": self.list_desks(project=project)}
+            path = self.brain_dir / row["filepath"]
+            try:
+                text = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                # Il file è sparito. Qui dentro non si tocca l'indice: si
+                # lascia che questa transazione (che non ha ancora scritto
+                # nulla) chiuda da sola, e si passa la mano a
+                # _forget_missing_desk *dopo* — che apre la propria
+                # `_write()`, e annidarla qui raddoppierebbe il lock.
+                missing = (row["slug"], row["project"])
+            else:
+                if done:
+                    text, tick_status = D.tick_step(text, done)
+                if note:
+                    text = D.add_log(text, note, when=_utcnow()[11:16])
+                if open_question:
+                    text = D.add_open(text, open_question)
+                if add:
+                    text = D.add_steps(text, add)
+                now = _utcnow()
+                text = D.set_meta(text, "updated", now)
+                _atomic_write_text(path, text)
+                conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
+                             (now, row["slug"], row["project"]))
+        if missing:
+            return self._forget_missing_desk(*missing)
+        next_step = D.next_step(text)
+        result = {"slug": row["slug"], "already_done": tick_status == "already",
+                   "next_step": next_step}
+        if tick_status == "not_found":
+            # Un'etichetta sbagliata (typo, o uno spazio che il file già
+            # spoglia ma il chiamante no) non deve avere la forma di un
+            # successo: lo si dice, e si passano le etichette vere così un
+            # typo si recupera senza rileggere l'intero file.
+            result["error"] = (f"nessun passo si chiama «{(done or '').strip()}» "
+                                f"in questa scrivania")
+            result["known_steps"] = [label for _, label in D.parse_plan(text)]
+        if next_step is None:
+            # Il piano è finito: non c'è un passo in più da inventare — il
+            # caso di Rizzo. Lo si dice, e si dà il `Fatto quando` così chi
+            # chiama verifica il traguardo invece di chiedere un altro passo.
+            dw = D.done_when(text)
+            result["plan_complete"] = True
+            result["message"] = (f"piano finito, nessun passo resta — "
+                                  f"fatto quando: {dw}" if dw else
+                                  "piano finito, nessun passo resta")
+        return result
+
+    def close_desk(self, slug: str, outcome: str, project: str | None = None,
+                   distil: str | None = None) -> dict:
+        """Chiude e archivia. Con `distil`, ne nasce UNA memoria collegata."""
+        from . import desk as D
+        project = project or "global"
+        memory_id = None
+        with self._write() as conn:
+            row = conn.execute("SELECT * FROM desks WHERE slug = ? AND project = ?",
+                               (slug, project)).fetchone()
+            if row is None:
+                return {"error": f"nessuna scrivania {project}/{slug}"}
+            src = self.brain_dir / row["filepath"]
+            dst = self._desk_path(project, slug, archived=True)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            now = _utcnow()
+            text = src.read_text(encoding="utf-8")
+            text = D.set_meta(text, "status", outcome)
+            # log_desk keeps file and DB in step on every write; close_desk
+            # must too, or a desk read straight from the archived file shows
+            # a stale `updated:` even though the index says otherwise.
+            text = D.set_meta(text, "updated", now)
+            _atomic_write_text(dst, text)
+            rel = f"desks/{project}/archived/{slug}.md"
+            # The index row is updated to point at the archived copy *before*
+            # the original is unlinked. If the UPDATE raises, the archived
+            # copy — new and not yet referenced by anything — is removed
+            # again so it doesn't become an orphan, and the source is left
+            # untouched: same discipline as store_memory's file/row
+            # compensation above. Only once the row safely points at `dst`
+            # is `src` removed, so a crash can never leave the index
+            # pointing at a file that no longer exists.
+            try:
+                conn.execute(
+                    "UPDATE desks SET status = ?, filepath = ?, updated_at = ? "
+                    "WHERE slug = ? AND project = ?",
+                    (outcome, rel, now, slug, project))
+            except BaseException:
+                dst.unlink(missing_ok=True)
+                raise
+            src.unlink(missing_ok=True)
+        if distil:
+            m = self.store_memory(
+                content=f"{distil}\n\nDalla scrivania [[{slug}]] ({outcome}).",
+                title=row["title"], project=project,
+                tags=["scrivania", outcome], category="note")
+            memory_id = m["id"]
+        self.append_log("desk_close", f"{project}/{slug} → {outcome}")
+        return {"slug": slug, "status": outcome, "memory_id": memory_id}
 
     def stats(self) -> dict:
         with self._conn() as conn:

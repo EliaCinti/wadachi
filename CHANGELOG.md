@@ -5,7 +5,38 @@ Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](h
 
 ## [Unreleased]
 
-### Changed — il menù degli strumenti: 23 invece di 33, e le descrizioni dicono *quando*
+### Added — la scrivania
+
+**Il lavoro in corso ora sopravvive alla fine della sessione, non solo quello già
+imparato.** Il caso concreto è la memoria #222 di questo stesso brain: la consegna
+del lavoro su M34, scritta a mano — millecinquecento parole di stato, cosa fatto,
+cosa provato e fallito, cosa resta — perché altrimenti se la sarebbe portata via la
+fine della finestra di contesto. Non è un caso isolato: è quello che succede ogni
+volta che una sessione finisce prima del lavoro, e finora l'unico rimedio era
+scriverlo a mano o perderlo.
+
+Una scrivania è un record di avanzamento in markdown, uno per filo di lavoro —
+`<brain>/desks/<progetto>/<slug>.md` — con un obiettivo, una condizione d'arresto
+(`fatto quando`), un piano a checkbox e un registro che cresce a ogni tentativo. Tre
+strumenti la portano:
+
+- **`desk`** — apre una scrivania (titolo, obiettivo, `fatto quando`, piano), la
+  chiude, o elenca quelle aperte.
+- **`desk_log`** — spunta il passo fatto e annota cosa non ha funzionato — i
+  fallimenti sono il punto — poi restituisce il prossimo passo: è anche come si
+  chiede «e adesso?».
+- **`desk_read`** — riprende il filo in una sessione che non sa nulla: piano,
+  passo successivo, cosa è già stato tentato.
+
+`get_context` la mostra da sola, sopra le memorie e dentro un budget proprio: sapere
+dove si era rimasti non costa una chiamata in più.
+
+**Il confine resta netto: una scrivania non entra mai in recall.** Chiuderla genera
+al più UNA memoria — la lezione, se ce n'è una — scritta da chi ha fatto il lavoro,
+mai dalla scrivania stessa. Piano, tentativi e rumore di lavorazione restano nel
+file archiviato, e basta.
+
+### Changed — il menù degli strumenti: 26 invece di 33, e le descrizioni dicono *quando*
 
 Contate le invocazioni su **741 trascrizioni** di sessioni reali: **19 strumenti su 33
 non erano mai stati chiamati**. Non è un dettaglio estetico — la ricerca 2026 misura
@@ -39,7 +70,8 @@ descrizione completa di ogni strumento in menù **e** di quelli fuori, con i due
 raggiungerli. Generato dal codice, quindi non può andare fuori sincrono con ciò che
 descrive.
 
-**Risultato: 23 strumenti in menù invece di 33, e ~1.340 token in meno in ogni sessione.**
+**Risultato: 26 strumenti in menù invece di 33 (23 dopo il taglio, tre tornati con i
+tool della scrivania sopra), e ~1.340 token in meno in ogni sessione.**
 
 
 ### Added — `.wadachi`, il file che dichiara a quale progetto appartiene una cartella

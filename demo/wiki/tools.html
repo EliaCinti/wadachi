@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tool reference — all 31 — wadachi wiki</title>
-<meta name="description" content="Grouped as the server groups them. Args in italics are optional.">
+<title>Tool reference — all 37 — wadachi wiki</title>
+<meta name="description" content="Grouped by area, as this page always has been. The server itself groups tools
+by moment of use instead: 26 in the menu by default (the work toolset,
+b">
 <link rel="canonical" href="https://wadachi.eliacinti.dev/wiki/tools.html">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23101012'/%3E%3Cpath d='M5 11.5C5 10.4 5.9 9.6 7 9.7L21 10.6C23.5 10.8 25.5 11.2 27 11.8C25.5 12.3 23.5 12.5 21 12.5L7 13.2C5.9 13.3 5 12.6 5 11.5Z' fill='%23E8E4DC'/%3E%3Cpath d='M5 19.5C5 18.4 5.9 17.6 7 17.7L19.5 18.6C22 18.8 24 19.2 25.5 19.8C24 20.3 22 20.5 19.5 20.5L7 21.2C5.9 21.3 5 20.6 5 19.5Z' fill='%23E8E4DC'/%3E%3Crect x='23' y='23' width='5' height='5' rx='1.4' fill='%23D9442B'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../styles.css?v=10">
@@ -113,13 +115,19 @@
 <div class="g">Safety</div>
 <a href="safety.html">Safety — the whole chain</a>
 <div class="g">Reference</div>
-<a href="tools.html" class="on">Tool reference — all 31</a>
+<a href="tools.html" class="on">Tool reference — all 37</a>
 <a href="cli.html">CLI reference</a>
 <a href="troubleshooting.html">Troubleshooting</a>
 <a href="faq.html">FAQ — the honest answers</a></nav>
 <main class="wk-main">
-<h1>Tool reference — all 31</h1>
-<p>Grouped as the server groups them. Args in <em>italics</em> are optional.</p>
+<h1>Tool reference — all 37</h1>
+<p>Grouped by area, as this page always has been. The server itself groups tools
+by <em>moment of use</em> instead: <strong>26 in the menu</strong> by default (the work toolset,
+below with no tag) and <strong>11 more for brain maintenance</strong>, marked
+<em>(maintenance)</em>, that stay out of the menu until asked for — from the CLI
+(<code>wadachi sleep</code>, <code>wadachi doctor</code>) or by setting
+<code>WADACHI_TOOLSETS=work,maintenance</code> for a session. <code>manual</code> prints the full
+description of any of the 37. Args in <em>italics</em> are optional.</p>
 <h2>Memory</h2>
 <div class="tblw"><table>
 <thead>
@@ -192,6 +200,21 @@
 <td>—</td>
 <td>health, search mode, stats, projects</td>
 </tr>
+<tr>
+<td>brain_watermark</td>
+<td><em>project</em></td>
+<td>current position (highest id per table) — take it before starting work</td>
+</tr>
+<tr>
+<td>changed_since</td>
+<td>watermark, <em>project</em></td>
+<td>what appeared after a position taken earlier</td>
+</tr>
+<tr>
+<td>manual</td>
+<td>—</td>
+<td>full description of every tool, in the menu and out</td>
+</tr>
 </tbody>
 </table></div>
 <h2>Decisions &amp; projects</h2>
@@ -226,6 +249,33 @@
 </tr>
 </tbody>
 </table></div>
+<h2>Desk</h2>
+<div class="tblw"><table>
+<thead>
+<tr>
+<th>tool</th>
+<th>args</th>
+<th>does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>desk</td>
+<td>action, <em>title, objective, done_when, plan, slug, outcome, distil, cwd, project</em></td>
+<td>open, close, or list a desk — the plan and progress for a task in flight</td>
+</tr>
+<tr>
+<td>desk_read</td>
+<td><em>slug, cwd, project</em></td>
+<td>pick a desk's thread back up: plan, next step, what was already tried</td>
+</tr>
+<tr>
+<td>desk_log</td>
+<td><em>slug, done, note, open_question, add, cwd, project</em></td>
+<td>tick the step that landed, note what failed, get the next step back</td>
+</tr>
+</tbody>
+</table></div>
 <h2>Graph</h2>
 <div class="tblw"><table>
 <thead>
@@ -254,7 +304,7 @@
 <tr>
 <td>rebuild_entity_graph</td>
 <td><em>project</em></td>
-<td>optional entity layer (local claude CLI)</td>
+<td>optional entity layer (local claude CLI) <em>(maintenance)</em></td>
 </tr>
 </tbody>
 </table></div>
@@ -271,12 +321,12 @@
 <tr>
 <td>review_beliefs</td>
 <td><em>project</em></td>
-<td>read-only stale scan (<a class="wl" href="beliefs.html">Beliefs, staleness &amp; decay</a>)</td>
+<td>read-only stale scan (<a class="wl" href="beliefs.html">Beliefs, staleness &amp; decay</a>) <em>(maintenance)</em></td>
 </tr>
 <tr>
 <td>set_belief</td>
 <td>memory_id, <em>confidence, status, valid_until, review_reason, superseded_by</em></td>
-<td>edit the envelope</td>
+<td>edit the envelope <em>(maintenance)</em></td>
 </tr>
 <tr>
 <td>flag_stale</td>
@@ -285,7 +335,7 @@
 </tr>
 </tbody>
 </table></div>
-<h2>Reflection &amp; procedures</h2>
+<h2>Reflection &amp; procedures — all maintenance</h2>
 <div class="tblw"><table>
 <thead>
 <tr>
@@ -335,17 +385,17 @@
 <tr>
 <td>sleep</td>
 <td><em>project, min_similarity</em></td>
-<td>the full housekeeping report (<a class="wl" href="sleep.html">Sleep — consolidation, proposed</a>)</td>
+<td>the full housekeeping report (<a class="wl" href="sleep.html">Sleep — consolidation, proposed</a>) <em>(maintenance)</em></td>
 </tr>
 <tr>
 <td>consolidate</td>
 <td><em>project, threshold, max_groups</em></td>
-<td>similarity-based merge groups</td>
+<td>similarity-based merge groups <em>(maintenance)</em></td>
 </tr>
 <tr>
 <td>merge_memories</td>
 <td>source_ids, title, content, <em>project, tags</em></td>
-<td>your synthesis + supersession</td>
+<td>your synthesis + supersession <em>(maintenance)</em></td>
 </tr>
 <tr>
 <td>why</td>

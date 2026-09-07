@@ -27,6 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from wadachi import __version__
 from wadachi.log import setup as _log_setup
 from wadachi.store import MemoryStore
+from wadachi import desk as D
 from wadachi.search import SearchEngine
 from wadachi.graph import MemoryGraph
 from wadachi.entities import EntityGraph
@@ -474,7 +475,90 @@ def _brain_proposals() -> list[str]:
     return props
 
 
-def _render_context_dense(context: dict, max_tokens: int) -> str:
+def _clip(s: str | None, n: int = 80) -> str:
+    """Accorcia una stringa a n caratteri, con ellissi se tagliata."""
+    s = (s or "").strip()
+    return s if len(s) <= n else s[: n - 1].rstrip() + "…"
+
+
+def _desk_block(project: str | None, budget: int) -> str:
+    """Il riassunto della scrivania, con un tetto proprio.
+
+    Entra nel bilancio di `get_context` come prima voce ma limitato, così una
+    scrivania lunga non svuota la lista delle memorie. Sotto il minimo si
+    riduce a titolo e prossimo passo, che è quanto basta per riprendere — e
+    ogni ramo, incluso quello con più scrivanie aperte, rispetta `budget`:
+    titolo e prossimo passo sono accorciati, e in ultima istanza il blocco
+    viene tagliato di netto piuttosto che sforare.
+    """
+    def cap(s: str) -> str:
+        """Rete di sicurezza: se anche la forma degradata sfora, taglia netto.
+
+        Un taglio cieco può cadere a metà di uno slug — ed è proprio lo slug
+        che il lettore incolla in desk_read(slug): fallirebbe in silenzio
+        ("scrivania non trovata") invece che in modo palese. Un'ellissi alla
+        fine rende il taglio visibile: una stringa tagliata non si spaccia
+        mai per una intera.
+        """
+        if _est_tokens(s) <= budget:
+            return s
+        return s[: max(budget * 4 - 1, 0)].rstrip() + "…"
+
+    if not project:
+        # Nessun progetto rilevato dalla cwd: `list_desks(None)` non filtra
+        # nulla e mostrerebbe scrivanie di progetti altrui — il §3 della
+        # spec è netto («nessuna → non dice niente»). Zero è la sola
+        # risposta onesta quando non sappiamo di quale progetto si tratti.
+        return ""
+
+    open_ones = store.list_desks(project=project, status="open")
+    if not open_ones:
+        return ""
+
+    if len(open_ones) > 1:
+        names = " · ".join(f"`{d['slug']}` ({_clip(d['title'], 40)})" for d in open_ones)
+        full = f"## 🖿 scrivanie aperte\n{names}\n→ desk_read(slug)\n\n"
+        if _est_tokens(full) <= budget:
+            return full
+        # list_desks ordina già per updated_at DESC: la prima è la più recente
+        latest = open_ones[0]["slug"]
+        brief = (f"## 🖿 {len(open_ones)} scrivanie aperte, la più recente è "
+                 f"`{latest}` — desk_read(slug)\n\n")
+        if _est_tokens(brief) <= budget:
+            return brief
+        return cap(f"## 🖿 {len(open_ones)} scrivanie aperte\n\n")
+
+    got = store.read_desk(open_ones[0]["slug"], project)
+    if not got:
+        return ""
+    if got.get("missing_file"):
+        # Il file dietro la riga indicizzata è sparito (cancellato a mano,
+        # per esempio in Obsidian — il progetto lo invita esplicitamente).
+        # read_desk ha già tolto la riga dall'indice: qui si dice la cosa
+        # onesta invece di sollevare un KeyError su `got["title"]`, che è
+        # esattamente il crash che bloccava get_context per l'intera sessione.
+        return cap(f"## 🖿 scrivania `{got['slug']}` — il file non c'è più, "
+                    f"rimossa dall'indice\n\n")
+    title = _clip(got["title"], 80)
+    next_step = _clip(got["next_step"] or "— piano finito, valuta di chiudere", 80)
+    head = (f"## 🖿 scrivania aperta — `{got['slug']}`\n"
+            f"**{title}**\n"
+            f"Prossimo passo: **{next_step}**\n")
+    if _est_tokens(head) > budget:
+        fallback = (f"## 🖿 scrivania `{got['slug']}` — prossimo: "
+                    f"{_clip(got['next_step'] or 'finito', 60)}\n\n")
+        return cap(fallback)
+
+    body = ""
+    for label, marker in (("Obiettivo", D.OBJECTIVE), ("Registro", D.LOG)):
+        chunk = D.section_text(got["text"], marker)
+        first = _clip(next((l for l in chunk.split("\n") if l.strip()), ""), 80)
+        if first and _est_tokens(head + body + first) <= budget:
+            body += f"{label}: {first}\n"
+    return cap(head + body + "→ desk_read() per il resto\n\n")
+
+
+def _render_context_dense(context: dict, max_tokens: int, project: str | None = None) -> str:
     """Formato a livelli (Fase 4.12/4.14): righe compatte con puntatori #id.
 
     Se il budget non basta, si tronca PER RILEVANZA (le memorie sono già
@@ -520,8 +604,10 @@ def _render_context_dense(context: dict, max_tokens: int) -> str:
             parts += ["## da rivedere"] + rev_lines[:n_rev]
         return "\n".join(parts + footer)
 
+    desk = _desk_block(project, max_tokens // 4)
+
     n_mem, n_dec, n_rev = len(mem_lines), len(dec_lines), len(rev_lines)
-    out = assemble(n_mem, n_dec, n_rev)
+    out = desk + assemble(n_mem, n_dec, n_rev)
     while _est_tokens(out) > max_tokens:
         if n_rev > 1:
             n_rev -= 1
@@ -531,7 +617,7 @@ def _render_context_dense(context: dict, max_tokens: int) -> str:
             n_mem -= 1
         else:
             break                      # sotto il minimo utile non si scende
-        out = assemble(n_mem, n_dec, n_rev)
+        out = desk + assemble(n_mem, n_dec, n_rev)
     return out
 
 
@@ -597,7 +683,7 @@ def get_context(
 
     if format == "json":
         return json.dumps(context, indent=2)
-    return _render_context_dense(context, max_tokens)
+    return _render_context_dense(context, max_tokens, project)
 
 
 @tool()
@@ -1151,6 +1237,104 @@ def review_procedures(project: str | None = None) -> str:
     """
     rules = ProceduralReviewer(store).review(project=project)
     return json.dumps({"candidate_rules": rules, "count": len(rules)}, indent=2)
+
+
+# ── La scrivania: lo stato del lavoro in corso ────────────────
+
+
+@tool()
+def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
+         plan: list[str] | None = None, slug: str = "", outcome: str = "done",
+         distil: str = "", cwd: str = "", project: str | None = None) -> str:
+    """Use this when a piece of work will outlive this conversation: open a desk
+    at the start, close it when it lands.
+
+    A desk is the working state a session cannot carry — the plan, what has been
+    tried and failed, where the thread was dropped. Memories hold what you
+    learned; a desk holds what you are doing.
+
+    Args:
+        action: "open", "close" or "list" (open desks only — closed ones are
+            reachable by slug through desk_read once you have it).
+        title: open — a short name for the thread of work.
+        objective: open — what this work is for.
+        done_when: open — how a machine (or you) can tell it is finished.
+            Required: without it a desk is a diary, not a desk.
+        plan: open — the steps, as a list. Thinking them through now is half the value.
+        slug: close — which desk (the id `open` returned).
+        outcome: close — "done" or "abandoned". An abandoned desk is often worth
+            more than a clean one: it says what does not work.
+        distil: close — the lesson worth keeping. Given, it becomes a real
+            memory linked to the archived desk; omitted, nothing is stored, and
+            that is a fine answer for work that taught nothing.
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
+    """
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
+    try:
+        if action == "open":
+            return json.dumps(store.open_desk(title, objective, done_when,
+                                              plan or [], project), indent=2)
+        if action == "close":
+            return json.dumps(store.close_desk(slug, outcome, project,
+                                               distil or None), indent=2)
+        if action == "list":
+            return json.dumps(store.list_desks(project, status="open"), indent=2)
+        return json.dumps({"error": f"action sconosciuta: {action}"}, indent=2)
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, indent=2)
+
+
+@tool()
+def desk_read(slug: str = "", cwd: str = "", project: str | None = None) -> str:
+    """Use this when you are picking work back up and need to know where it
+    stopped — the plan, the next step, and what was already tried and failed.
+
+    Without a slug it opens the one desk left open in this project; if several
+    are open it lists them rather than guessing.
+
+    Args:
+        slug: which desk (omit to resolve the one open desk in this project).
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
+    """
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
+    got = store.read_desk(slug or None, project)
+    if got is None:
+        return json.dumps({"desks": store.list_desks(project),
+                           "note": "nessuna scrivania aperta qui"}, indent=2)
+    return json.dumps(got, indent=2)
+
+
+@tool()
+def desk_log(slug: str = "", done: str = "", note: str = "",
+             open_question: str = "", add: list[str] | None = None,
+             cwd: str = "", project: str | None = None) -> str:
+    """Use this after every attempt on a desk: tick the step that landed, and
+    write down what failed and why.
+
+    The failures are the point — they are what stops the next attempt from
+    repeating this one. Returns the next unfinished step, so this is also how
+    you ask "what now?".
+
+    Args:
+        done: the exact label of the step that is finished.
+        note: what happened, especially when it did not work.
+        open_question: something unresolved that is not a step.
+        add: steps discovered along the way.
+        cwd: the caller's working directory, used to detect which project this
+            desk belongs to (the server cannot see where you are — it may have
+            been started from anywhere).
+        project: overrides detection — defaults to the project detected from cwd.
+    """
+    project = project or (store.detect_project(cwd) if cwd else None) or "global"
+    return json.dumps(store.log_desk(slug or None, project, done or None,
+                                     note or None, open_question or None,
+                                     add or None), indent=2)
 
 
 # ── Il manuale: «tipo man», su richiesta e non in ogni sessione ──

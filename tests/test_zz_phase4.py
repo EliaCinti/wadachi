@@ -6,37 +6,43 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from wadachi.migrations import _discover
 from wadachi.search import decay_penalty
+
+# la catena completa delle migrazioni disponibili: i test restano validi
+# anche quando se ne aggiungono di nuove
+ALL = [v for v, _, _ in _discover()]
+LATEST = ALL[-1]
 
 
 def j(out: str):
     return json.loads(out)
 
 
-# ── migrazione 0002 ───────────────────────────────────────────
+# ── migrazioni base ──────────────────────────────────────────────
 
 
-def test_fresh_db_reaches_schema_v2(tmp_path):
+def test_fresh_db_reaches_the_latest_schema(tmp_path):
     from wadachi.migrations import run_migrations
     applied = run_migrations(tmp_path / "brain.db")
-    assert applied == [1, 2]
+    assert applied == ALL
     conn = sqlite3.connect(tmp_path / "brain.db")
     cols = {r[1] for r in conn.execute("PRAGMA table_info(memories)")}
     assert {"access_count", "last_accessed"} <= cols
     conn.close()
 
 
-def test_v1_db_upgrades_to_v2_preserving_data(tmp_path, store):
-    """Upgrade incrementale: un brain a schema v1 con dati arriva a v2 intatto."""
+def test_a_v1_db_upgrades_to_the_latest_schema_preserving_data(tmp_path, store):
+    """Upgrade incrementale: un brain a schema v1 con dati arriva allo schema più recente intatto."""
     r = store.store_memory("dato prezioso", "Sopravvive")
     db = store.db_path
     conn = sqlite3.connect(db)
     # simula un brain rimasto a v1: togli la colonna? impossibile in sqlite —
     # simuliamo togliendo la RIGA di versione 2 e le colonne non servono:
     # il runner non riapplica migrazioni già registrate, quindi qui verifichiamo
-    # il contratto inverso: schema_version dice v2 e i dati ci sono.
+    # il contratto inverso: schema_version dice l'ultima versione e i dati ci sono.
     v = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    assert v == 2
+    assert v == LATEST
     assert conn.execute("SELECT title FROM memories").fetchone()[0] == "Sopravvive"
     conn.close()
     assert store.get_memory(r["id"])["content"] == "dato prezioso"

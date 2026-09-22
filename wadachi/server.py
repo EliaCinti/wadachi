@@ -122,37 +122,29 @@ def tools_in(toolset: str) -> list[str]:
 
 mcp = FastMCP(
     "wadachi",
-    instructions="""You have access to a persistent Brain — a knowledge base that survives across sessions.
+    instructions="""A persistent Brain that survives across sessions: memories, decisions, and
+desks — a desk being a plan you can put down and pick back up.
 
-## How to use the Brain effectively:
+**Start here.** `get_context` loads what this project already knows. Before
+investigating anything, `recall` — it may already be stored. Always pass `cwd`:
+the server cannot see where it is called from, and without it scopes to the
+wrong project.
 
-1. **START of every session**: Call `get_context` with the current working directory to load relevant memories and decisions. This saves you from re-analyzing everything.
+**A desk is for work that outlives one reply.** `desk(action="open", …)` records
+the objective, what "done" means, and a plan of steps. `desk_log(done=…, note=…)`
+ticks a step and **returns the next unfinished one** — the desk is the cursor of
+the work, not a report written afterwards. Put the failures in `note`: they are
+what stops the next attempt from repeating this one. `desk_read` picks the work
+back up; `desk(action="close", distil=…)` turns it into memory.
 
-2. **BEFORE deep-diving into files**: Call `recall` with keywords about what you're about to do. The Brain may already have insights, patterns, or decisions from previous sessions.
+**Store what cost you time** — a decision and its why, a pattern, a bug and its
+fix, a config detail that took digging. Use `store_decision` when you chose
+between alternatives: what you picked, why, and what you rejected. Categories:
+`architecture`, `bugfix`, `config`, `pattern`, `context`, `reference`, `note`.
 
-3. **AFTER completing work**: Call `store_memory` to save:
-   - Architecture decisions and WHY they were made
-   - Patterns discovered in the codebase
-   - Bugs found and how they were fixed
-   - Configuration details that took time to figure out
-   - Any insight that would save time if you had it at the start
-
-4. **For decisions**: Use `store_decision` when making choices between alternatives. Record what you chose, why, and what you rejected. Future sessions will thank you.
-
-5. **Projects**: Use `register_project` to associate directory paths with project names. Then `get_context` will automatically scope memories to the relevant project.
-
-## Categories for memories:
-- `architecture`: System design, patterns, structure decisions
-- `bugfix`: Bugs found and their solutions
-- `config`: Configuration, setup, environment details
-- `pattern`: Code patterns, conventions, style rules
-- `context`: General project context and background
-- `reference`: API details, library usage, external docs
-- `note`: General notes
-
-## Golden rule: If you spent time figuring something out, store it. The 30 seconds to store a memory saves 5 minutes next session.
-
-## Linking (LLM Wiki): when a memory relates to another, LINK it in the content — `[[#42]]` by id or `[[file-slug]]` Obsidian-style. Links become graph edges: associative recall, provenance and consolidation all travel on them. The brain dir is a valid Obsidian vault and an OKF bundle.
+**Link memories** with `[[#42]]` or `[[file-slug]]`. Links are graph edges:
+associative recall, provenance and consolidation all travel on them. The brain
+dir is a valid Obsidian vault and an OKF bundle.
 """,
 )
 

@@ -3,6 +3,53 @@
 All notable changes to this project are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](https://semver.org) (pre-1.0: minor = può rompere).
 
+## [Unreleased]
+
+### Added — il peso della sessione
+
+**Una chat lunga si ripaga a ogni turno, e nessuno lo diceva.** Il contesto
+intero viene rifatturato a ogni messaggio, quindi il costo di una sessione
+cresce col quadrato della sua durata. Misurato il 16 Set: lo stesso lavoro
+costava 589k token all'agente ripreso quattro volte e 218k a uno fresco che
+leggeva il brief da file. La regola — «chiudere e ripartire da una memoria è più
+economico che continuare» — era già scritta e non è mai stata applicata, perché
+il punto di pareggio si scopriva dalla fattura.
+
+`scripts/session-weight.py` legge il transcript che la CLI sta già scrivendo,
+somma il contesto dell'ultimo turno e, **solo oltre una soglia**, parla al
+modello via `hookSpecificOutput.additionalContext` dell'hook `UserPromptSubmit`:
+il peso, quanto costa continuare, quanto costa ripartire, e l'invito a
+distillare nella scrivania. Sotto soglia è muto, e il silenzio costa zero token.
+Un invito si dice una volta per banda, non a ogni turno.
+
+`scripts/statusline.sh` mostra la stessa percentuale nella statusline, in verde,
+giallo o rosso sulle stesse soglie.
+
+**La finestra non è deducibile dal nome del modello:** il transcript registra
+`claude-opus-5` anche quando la sessione gira sulla variante `[1m]`. La prima
+versione annunciava «108% (215k/200k)» a una sessione che era al 21%. Ora la
+finestra si ricava dal contesto stesso — uno che ha superato i 200k dimostra di
+essere nella finestra grande, perché una sessione non può eccedere la propria.
+
+Nessun tool MCP nuovo: la scrivania era già il posto dove si salva.
+
+### Changed — le istruzioni del server nominano la scrivania
+
+**Il server spiegava come si ricorda, non come si riprende un lavoro.** Le
+istruzioni iniettate in ogni sessione — cinque punti su memorie e decisioni —
+non citavano `desk` una sola volta, pur essendo la scrivania la ragione per cui
+un lavoro sopravvive alla fine della finestra di contesto. Un client che leggeva
+solo quelle non sapeva di averla.
+
+Ora la nominano per prima, e dicono la cosa che non si deduce dalla firma:
+`desk_log` **restituisce il passo successivo**, quindi la scrivania è il cursore
+del lavoro e non un verbale da compilare dopo. Aggiunto anche l'avvertimento su
+`cwd`, che il server non può dedurre e senza il quale attribuisce il lavoro al
+progetto sbagliato.
+
+Più corte del 30% (481 → 343 token stimati): il testo tolto era la pubblicità
+del ricordare, quello aggiunto è operativo.
+
 ## [0.16.0] — 2026-09-07
 
 ### Added — la scrivania

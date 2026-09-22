@@ -50,6 +50,19 @@ if pct is not None:
         label += f" di {int(window)//1000}k"
     parts.append(f"\033[{color}mctx {label}\033[0m")
 
+# La quota del piano. Esiste SOLO sull abbonamento: con ANTHROPIC_API_KEY
+# impostata la CLI non la riporta (rate_limits_available: false), perche la
+# chiave scavalca il piano. Se manca, la riga semplicemente non la mostra.
+limits = d.get("rate_limits") or {}
+for chiave, etichetta in (("five_hour", "5h"), ("seven_day", "7g")):
+    w = limits.get(chiave) or {}
+    u = w.get("used_percentage")
+    if u is None:
+        continue
+    u = float(u)
+    color = "32" if u < 50 else ("33" if u < 80 else "31")
+    parts.append(f"\033[{color}m{etichetta} {u:.0f}%\033[0m")
+
 cost = (d.get("cost") or {}).get("total_cost_usd")
 if cost:
     parts.append(f"${float(cost):.2f}")

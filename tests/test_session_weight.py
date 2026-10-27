@@ -134,6 +134,38 @@ def test_la_banda_alta_propone_la_scrivania(tmp_path):
     assert "desk_log" in testo and "desk_read" in testo
 
 
+# ── i conti con la cache ───────────────────────────────────────────────────
+
+
+def _testo(out: str) -> str:
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"]
+
+
+@pytest.mark.parametrize("ctx", [110_000, 160_000, 190_000])
+def test_il_turno_caldo_costa_un_decimo_del_contesto(tmp_path, ctx):
+    """Il contesto si rilegge dalla cache a 0,1×: a 160k un turno vale ~16k, non 160k."""
+    tp = transcript(tmp_path, usage(ctx))
+    t = _testo(run(fresh(tp))[1])
+    assert f"≈{ctx // 10_000}k" in t
+    assert f"~{ctx // 1000}k a turno" not in t, "il conto senza cache sbaglia di 10×"
+
+
+@pytest.mark.parametrize("ctx", [110_000, 160_000])
+def test_il_turno_freddo_costa_il_doppio_del_contesto(tmp_path, ctx):
+    """Dopo la pausa il contesto si riscrive in cache a 2×."""
+    tp = transcript(tmp_path, usage(ctx))
+    t = _testo(run(fresh(tp))[1])
+    assert f"≈{ctx * 2 // 1000}k" in t and "1 h" in t
+
+
+def test_la_durata_della_cache_si_vede_nel_messaggio(tmp_path):
+    """Sforato il piano, la cache dura cinque minuti: il messaggio deve dirlo,
+    e il turno freddo costa 1,25× invece di 2×."""
+    tp = transcript(tmp_path, usage(160_000))
+    t = _testo(run(fresh(tp), env={"WADACHI_CACHE_TTL": "300"})[1])
+    assert "5 min" in t and "≈200k" in t
+
+
 def test_soglie_configurabili_da_ambiente(tmp_path):
     tp = transcript(tmp_path, usage(60_000))  # 30%
     assert run(fresh(tp)) == (0, "")

@@ -193,6 +193,35 @@ and path "/Volumes/ExtremeSSD/University/Lecture_From_Audio/"
 
 From now on, every session can start with `get_context` and your AI already knows what's going on. As you work, important discoveries get stored automatically. Over time, the brain compounds — each session is smarter than the last.
 
+### Claude Code hooks (optional)
+
+Four scripts in `scripts/` keep long sessions cheap and the brain safe. Hooks do not see the MCP
+server's environment, so pass `BRAIN_DIR` in the command; without it they stay
+silent rather than guess a brain.
+
+| Script | Hook | What it does |
+|---|---|---|
+| `session-weight.py` | `UserPromptSubmit` | Warns the model as the context fills up. After a pause longer than the prompt-cache lifetime, **blocks the message once** and tells you what it would cost (the next turn re-writes the whole context into the cache — ~20 warm turns' worth) and whether the desk is up to date. Sending again goes through. |
+| `resume-desk.py` | `SessionStart` (`startup\|clear`) | Injects the project's open desk, so `/clear` resumes at the right step with no tool call. |
+| `statusline.sh` | `statusLine` | Context weight, plan quota, and the cache countdown: `cache 42m`, then `cache fredda`. |
+| `backup-brain.sh` | `Stop` (`async`) | Tars the brain at the end of each session, keeping the last 10. |
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "timeout": 10,
+      "command": "BRAIN_DIR=/path/to/brain /path/to/wadachi/venv/bin/python /path/to/wadachi/scripts/session-weight.py" }] }],
+    "SessionStart": [{ "matcher": "startup|clear", "hooks": [{ "type": "command", "timeout": 10,
+      "command": "BRAIN_DIR=/path/to/brain /path/to/wadachi/venv/bin/python /path/to/wadachi/scripts/resume-desk.py" }] }]
+  },
+  "statusLine": { "type": "command", "command": "/path/to/wadachi/scripts/statusline.sh" }
+}
+```
+
+Tuning, all optional: `WADACHI_CACHE_GUARD=off`, `WADACHI_GUARD_MIN` (default
+40000 tokens), `WADACHI_CACHE_TTL` (seconds; read from the transcript otherwise),
+`WADACHI_WEIGHT_NOTICE/WARN/URGE` (50/75/90 %).
+
 ---
 
 ## Tools
@@ -393,7 +422,7 @@ Semantic search runs entirely on your machine — no API calls, no cloud, no cos
 
 - [ ] Auto-summarize old memories to reduce token usage
 - [ ] Memory importance decay (surface recent and frequently-accessed memories first)
-- [ ] Claude Code hooks for automatic context injection + brain backup on session stop
+- [x] Claude Code hooks for automatic context injection + brain backup on session stop — see [Claude Code hooks](#claude-code-hooks-optional)
 - [ ] Export/sync with Notion
 - [ ] Conversation history indexing
 - [ ] Multi-language embedding model for better Italian support

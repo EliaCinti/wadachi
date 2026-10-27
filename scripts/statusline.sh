@@ -5,6 +5,9 @@
 # e `used_percentage`. Qui non si decide niente: si mostra. La decisione la
 # prende Elia, eventualmente spinto dall'hook session-weight.py.
 #
+# Accanto al peso, il tempo: `cache 42m` è quanto resta prima che il prossimo
+# turno riscriva tutto il contesto in cache, `cache fredda` che è già scaduta.
+#
 # Muto su ciò che non sa: un campo mancante sparisce dalla riga invece di
 # stampare "null" o zero.
 
@@ -49,6 +52,70 @@ if pct is not None:
     if window:
         label += f" di {int(window)//1000}k"
     parts.append(f"\033[{color}mctx {label}\033[0m")
+
+
+# La cache: quanti minuti restano prima che il prossimo turno riscriva tutto
+# il contesto (vedi la guardia in session-weight.py). La statusline si
+# ridisegna spesso, quindi legge solo la coda del transcript; se lultimo turno
+# non sta nella coda piccola si prova una coda grande, poi si rinuncia.
+def cache_left(path):
+    import math
+    from datetime import datetime, timezone
+    try:
+        size = os.path.getsize(path)
+    except (OSError, TypeError):
+        return None
+    when = ttl = None
+    for tail in (512 * 1024, 8 * 1024 * 1024):
+        with open(path, "rb") as fh:
+            fh.seek(max(size - tail, 0))
+            rows = fh.read().decode("utf-8", "ignore").split("\n")
+        if size > tail:
+            rows = rows[1:]  # la prima riga della coda e tagliata a meta
+        for raw in reversed(rows):
+            try:
+                rec = json.loads(raw)
+            except Exception:
+                continue
+            if not isinstance(rec, dict) or rec.get("isSidechain"):
+                continue
+            msg = rec.get("message")
+            u = msg.get("usage") if isinstance(msg, dict) else None
+            if not isinstance(u, dict):
+                continue
+            if when is None:
+                try:
+                    when = datetime.fromisoformat(str(rec.get("timestamp")).replace("Z", "+00:00"))
+                except Exception:
+                    return None
+            split = u.get("cache_creation") or {}
+            if (split.get("ephemeral_1h_input_tokens") or 0) > 0:
+                ttl = 3600
+            elif (split.get("ephemeral_5m_input_tokens") or 0) > 0:
+                ttl = 300
+            if ttl:
+                break
+        if when is not None or size <= tail:
+            break
+    if when is None or when.tzinfo is None:
+        return None
+    try:
+        ttl = int(os.environ["WADACHI_CACHE_TTL"])
+    except (KeyError, ValueError):
+        ttl = ttl or 3600
+    left = ttl - (datetime.now(timezone.utc) - when).total_seconds()
+    return math.ceil(left / 60) if left > 0 else 0
+
+
+try:
+    left = cache_left(d.get("transcript_path"))
+except Exception:
+    left = None
+if left == 0:
+    parts.append("\033[31mcache fredda\033[0m")
+elif left is not None:
+    color = "32" if left > 15 else "33"
+    parts.append(f"\033[{color}mcache {left}m\033[0m")
 
 # La quota del piano. Esiste SOLO sull abbonamento: con ANTHROPIC_API_KEY
 # impostata la CLI non la riporta (rate_limits_available: false), perche la

@@ -33,6 +33,44 @@ essere nella finestra grande, perché una sessione non può eccedere la propria.
 
 Nessun tool MCP nuovo: la scrivania era già il posto dove si salva.
 
+### Added — la cache ha un orologio
+
+**Lo spreco più grosso dipendeva dal tempo, non dal peso.** Il contesto resta
+nella cache dei prompt per un'ora dall'ultimo turno (cinque minuti fuori dal
+piano), e ogni turno la rinnova. Il primo messaggio dopo una pausa più lunga
+riscrive tutto in cache a 2×: con 132k di contesto sono ~264k token
+equivalenti, quanto venti turni normali. Succede ogni volta che ci si alza e si
+torna, e nessuno lo vedeva.
+
+- **La guardia** (`session-weight.py`). Se la cache è scaduta e il contesto
+  supera 40k, l'hook `UserPromptSubmit` **blocca il messaggio una volta**
+  (`decision: "block"`): il messaggio non arriva al modello, quindi il blocco
+  costa zero. Il motivo, che legge l'utente e non il modello, dice da quanto è
+  scaduta, quanto costerebbe e se la scrivania è stata aggiornata durante
+  l'ultimo turno — cioè se `/clear` è sicuro. Il secondo invio passa.
+  `WADACHI_CACHE_GUARD=off` la spegne, `WADACHI_GUARD_MIN` sposta la soglia.
+- **La durata si legge, non si indovina.** Ogni `usage` del transcript divide
+  la scrittura in cache fra `ephemeral_1h` ed `ephemeral_5m`: la guardia usa
+  quella, e `WADACHI_CACHE_TTL` la sovrascrive.
+- **La ripresa** (`scripts/resume-desk.py`, hook `SessionStart` su `startup` e
+  `clear`). Inietta la scrivania aperta del progetto — obiettivo, «fatto
+  quando», prossimo passo, ultime due voci del registro, «Aperto» — entro
+  ~1,2k token; con più scrivanie aperte le elenca senza sceglierne una. Così
+  `/clear` riparte dal punto giusto senza tool call.
+- **Il conto alla rovescia** nella statusline: `cache 42m`, poi `cache fredda`.
+  Legge solo la coda del transcript.
+
+### Fixed — i conti del peso ignoravano la cache
+
+Gli avvisi di `session-weight.py` dicevano «continuare costa ~160k a turno»:
+sbagliato di un fattore 10, perché a cache calda il contesto si rilegge a 0,1×.
+Ora dicono il costo del turno caldo e di quello dopo la pausa, con i rapporti
+in costanti che citano la fonte. Ne cambia anche il consiglio: mentre si lavora
+senza pause continuare conviene; il rischio è la pausa.
+
+I record dei subagenti (`isSidechain`) non contano più nella misura: hanno un
+contesto e una cache loro.
+
 ### Changed — le istruzioni del server nominano la scrivania
 
 **Il server spiegava come si ricorda, non come si riprende un lavoro.** Le

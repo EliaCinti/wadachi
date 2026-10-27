@@ -174,6 +174,20 @@ def test_senza_session_id_non_blocca(tmp_path):
     assert blocked(run(p)[1]) is None
 
 
+def test_senza_dove_ricordarselo_non_blocca(tmp_path):
+    """Se il marker non si scrive, il secondo invio non saprebbe di essere il
+    secondo e si bloccherebbe per sempre. Qui al posto della directory dei
+    marker c'è un file: la guardia deve lasciar passare, non insistere."""
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    (tmp / "wadachi-session-weight").write_text("non sono una directory")
+    tp, cwd, sid = cold_session(tmp_path)
+    p = payload(tp, cwd, sid)
+    env = {"TMPDIR": str(tmp)}
+    assert blocked(run(p, env=env)[1]) is None
+    assert blocked(run(p, env=env)[1]) is None
+
+
 def test_record_senza_timestamp_non_bloccano(tmp_path):
     tp, cwd, sid = cold_session(tmp_path)
     lines = [json.loads(l) for l in Path(tp).read_text().splitlines()]

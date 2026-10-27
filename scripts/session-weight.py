@@ -245,6 +245,24 @@ def _message(band: str, ctx: int, window: int, pct: float, ttl: int) -> str:
     )
 
 
+def _first_block(session_id: str, key: str) -> bool:
+    """True solo la prima volta, e solo se è riuscito a ricordarselo.
+
+    Il contrario di `_already_said` sul punto che conta: là un marker non
+    scritto costa un avviso in più, qui costerebbe un blocco a ogni invio —
+    il secondo non saprebbe di essere il secondo. Senza memoria non si blocca.
+    """
+    marker = Path(tempfile.gettempdir()) / "wadachi-session-weight" / f"{session_id}.{key}"
+    try:
+        if marker.exists():
+            return False
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    except Exception:
+        return False
+    return True
+
+
 def _env_int(name: str, default: int | None) -> int | None:
     try:
         return int(os.environ[name])
@@ -329,7 +347,7 @@ def _cold_guard(data: dict, seen: dict, ctx: int) -> str | None:
     expired = (datetime.now(timezone.utc) - reply_at).total_seconds() - ttl
     if expired <= 0:
         return None
-    if _already_said(session_id, "cold-" + re.sub(r"\D", "", reply_at.isoformat())):
+    if not _first_block(session_id, "cold-" + re.sub(r"\D", "", reply_at.isoformat())):
         return None
 
     turns = _CACHE_WRITE.get(ttl, _CACHE_WRITE[_DEFAULT_TTL]) / _CACHE_READ

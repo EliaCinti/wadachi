@@ -11,7 +11,12 @@ from wadachi.portability import export_brain, restore_brain
 
 
 def _hash_tree(root):
+    import gc
     import hashlib
+    # Le connessioni rimaste aperte le chiude il gc, e alla chiusura dell'ultima
+    # SQLite cancella brain.db-wal: se capita a metà giro, read_bytes non trova
+    # il file (CI 3.12, 28 Ott 2026). Prima si chiudono, poi si conta.
+    gc.collect()
     h = hashlib.sha256()
     for p in sorted(root.rglob("*")):
         if p.is_file():

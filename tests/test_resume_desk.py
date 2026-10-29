@@ -185,11 +185,16 @@ def fuori(tmp_path):
     return d
 
 
-def aged(brain, d, days: float):
-    """Sposta indietro l'ultimo aggiornamento della scrivania, file e indice."""
+def aged(brain, d, days: int):
+    """Sposta indietro l'ultimo aggiornamento della scrivania, file e indice.
+
+    Ancorato a mezzogiorno locale: l'età si conta in giorni di calendario, e
+    `now - N×24h` sbaglia giorno vicino a mezzanotte o al cambio dell'ora.
+    """
     from wadachi import desk as D
 
-    stamp = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    noon = datetime.now().astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
+    stamp = (noon - timedelta(days=days)).astimezone(timezone.utc).isoformat()
     path = brain.brain_dir / d["filepath"]
     path.write_text(D.set_meta(path.read_text(), "updated", stamp))
     with sqlite3.connect(brain.brain_dir / "brain.db") as conn:

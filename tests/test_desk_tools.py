@@ -76,3 +76,21 @@ def test_listing_shows_only_open_desks(srv):
     ]
     assert opened["slug"] not in [d["slug"] for d in listed]
     assert len(listed) == 1
+
+
+def test_desk_log_takes_a_position_for_new_steps(srv):
+    srv.register_project("p", "", [])
+    opened = json.loads(srv.desk(action="open", title="T", objective="O",
+                                 done_when="fatto", plan=["uno", "tre"],
+                                 project="p"))
+    refused = json.loads(srv.desk_log(slug=opened["slug"], project="p",
+                                      add=["due"]))
+    assert "error" in refused and refused["open_steps"] == ["uno", "tre"]
+
+    placed = json.loads(srv.desk_log(slug=opened["slug"], project="p",
+                                     add=["due"], before="tre"))
+    assert placed["open_steps"] == ["uno", "due", "tre"]
+
+    last = json.loads(srv.desk_log(slug=opened["slug"], project="p",
+                                   add=["quattro"], at_end=True))
+    assert last["open_steps"] == ["uno", "due", "tre", "quattro"]

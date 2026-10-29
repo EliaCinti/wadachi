@@ -1305,6 +1305,7 @@ def desk_read(slug: str = "", cwd: str = "", project: str | None = None) -> str:
 @tool()
 def desk_log(slug: str = "", done: str = "", note: str = "",
              open_question: str = "", add: list[str] | None = None,
+             before: str = "", at_end: bool = False,
              cwd: str = "", project: str | None = None) -> str:
     """Use this after every attempt on a desk: tick the step that landed, and
     write down what failed and why.
@@ -1317,7 +1318,12 @@ def desk_log(slug: str = "", done: str = "", note: str = "",
         done: the exact label of the step that is finished.
         note: what happened, especially when it did not work.
         open_question: something unresolved that is not a step.
-        add: steps discovered along the way.
+        add: steps discovered along the way. While the plan has open steps,
+            say where they go — `before` or `at_end` — or the call is refused
+            and nothing is written; the reply lists the open steps in order.
+        before: the open step the new ones go in front of: its label, or a
+            prefix that matches only that step (e.g. "F6").
+        at_end: append the new steps after every open step, on purpose.
         cwd: the caller's working directory, used to detect which project this
             desk belongs to (the server cannot see where you are — it may have
             been started from anywhere).
@@ -1326,7 +1332,8 @@ def desk_log(slug: str = "", done: str = "", note: str = "",
     project = project or (store.detect_project(cwd) if cwd else None) or "global"
     return json.dumps(store.log_desk(slug or None, project, done or None,
                                      note or None, open_question or None,
-                                     add or None), indent=2)
+                                     add or None, before or None, at_end),
+                      indent=2)
 
 
 # ── Il manuale: «tipo man», su richiesta e non in ogni sessione ──

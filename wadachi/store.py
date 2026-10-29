@@ -985,11 +985,19 @@ class MemoryStore:
     def log_desk(self, slug: str | None = None, project: str | None = None,
                  done: str | None = None, note: str | None = None,
                  open_question: str | None = None,
-                 add: list[str] | None = None) -> dict:
-        """Spunta un passo e/o annota. Restituisce il prossimo passo."""
+                 add: list[str] | None = None,
+                 before: str | None = None, at_end: bool = False) -> dict:
+        """Spunta un passo e/o annota. Restituisce il prossimo passo.
+
+        I passi di `add` vanno prima del passo aperto `before` (etichetta o
+        prefisso univoco), o in fondo con `at_end`. Senza posizione, con passi
+        ancora aperti, la chiamata è rifiutata per intero: dove va un passo lo
+        sa chi lo aggiunge, e accodarlo in fondo l'ha messo più volte dietro la
+        review o un passo rimandato (piano 2026-10-29-passi-rimandati)."""
         from . import desk as D
         tick_status: str | None = None
         missing: tuple[str, str] | None = None
+        refused: str | None = None
         text = ""
         with self._write() as conn:
             row = self._resolve_desk(conn, slug, project)
@@ -1007,24 +1015,56 @@ class MemoryStore:
                 # `_write()`, e annidarla qui raddoppierebbe il lock.
                 missing = (row["slug"], row["project"])
             else:
+                original = text
                 if done:
                     text, tick_status = D.tick_step(text, done)
-                if note:
-                    text = D.add_log(text, note, when=_utcnow()[11:16])
-                if open_question:
-                    text = D.add_open(text, open_question)
-                if add:
-                    text = D.add_steps(text, add)
-                now = _utcnow()
-                text = D.set_meta(text, "updated", now)
-                _atomic_write_text(path, text)
-                conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
-                             (now, row["slug"], row["project"]))
+                # La posizione si risolve sul piano dopo la spunta: è quello
+                # che l'aggiunta vedrà. Un rifiuto però non scrive niente, né
+                # la spunta né la nota — niente scritture a metà.
+                anchor: str | None = None
+                if (before or at_end) and not add:
+                    refused = "before/at_end senza passi da aggiungere: manca add=[…]"
+                elif add and before and at_end:
+                    refused = "scegli una posizione sola: before=… oppure at_end=True"
+                elif add and before:
+                    anchor, how = D.resolve_step(text, before)
+                    if how == "ambiguous":
+                        refused = f"«{before}» indica più di un passo aperto: allunga il prefisso"
+                    elif how == "done":
+                        refused = f"«{before}» è un passo già spuntato: scegli un passo aperto"
+                    elif how == "not_found":
+                        refused = f"nessun passo aperto si chiama «{before}»"
+                elif add and not at_end and D.open_steps(text):
+                    refused = ("dove vanno i passi nuovi? before=«etichetta o prefisso» "
+                               "di un passo aperto, oppure at_end=True per accodarli in fondo")
+                if refused:
+                    text = original
+                else:
+                    if note:
+                        text = D.add_log(text, note, when=_utcnow()[11:16])
+                    if open_question:
+                        text = D.add_open(text, open_question)
+                    if add:
+                        text = D.add_steps(text, add, before=anchor)
+                    now = _utcnow()
+                    text = D.set_meta(text, "updated", now)
+                    _atomic_write_text(path, text)
+                    conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
+                                 (now, row["slug"], row["project"]))
         if missing:
             return self._forget_missing_desk(*missing)
+        if refused:
+            # Nessuna scrittura: si dice perché e si danno i passi aperti,
+            # così la chiamata si rifà senza rileggere la scrivania.
+            return {"slug": row["slug"], "already_done": False,
+                    "next_step": D.next_step(text), "error": refused,
+                    "open_steps": D.open_steps(text)}
         next_step = D.next_step(text)
         result = {"slug": row["slug"], "already_done": tick_status == "already",
                    "next_step": next_step}
+        if add:
+            # Chi ha aggiunto vede subito dove sono finiti i passi.
+            result["open_steps"] = D.open_steps(text)
         if tick_status == "not_found":
             # Un'etichetta sbagliata (typo, o uno spazio che il file già
             # spoglia ma il chiamante no) non deve avere la forma di un

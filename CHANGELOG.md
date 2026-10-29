@@ -60,6 +60,21 @@ torna, e nessuno lo vedeva.
 - **Il conto alla rovescia** nella statusline: `cache 42m`, poi `cache fredda`.
   Legge solo la coda del transcript.
 
+### Added — la ripresa anche fuori da un progetto
+
+**Dalla home la ripresa taceva.** Con la sessione aperta su una directory che
+non è di nessun progetto — VSCode sulla home, il caso più comune —
+`detect_project` dà `None` e `resume-desk.py` usciva muto: dopo `/clear`, il
+28 Ott, sono servite sei tool call per ritrovare il filo.
+
+Ora, fuori da un progetto, l'hook mostra le **cinque scrivanie aperte più
+recenti di tutti i progetti**, una riga ciascuna con progetto, età («oggi»,
+«ieri», «N g fa», in giorni di calendario) e prossimo passo, e conta le altre.
+Nessun dettaglio, nemmeno con una sola: senza progetto non si sa quale sia
+quella giusta, e il modello chiede invece di scegliere. Il piede indica
+`desk_read(slug=…, project=…)`, perché dalla home `cwd=` risolverebbe a
+`global`. Sul brain vero: ~260 token. Dentro un progetto non cambia niente.
+
 ### Fixed — i conti del peso ignoravano la cache
 
 Gli avvisi di `session-weight.py` dicevano «continuare costa ~160k a turno»:

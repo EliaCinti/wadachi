@@ -202,7 +202,7 @@ silent rather than guess a brain.
 | Script | Hook | What it does |
 |---|---|---|
 | `session-weight.py` | `UserPromptSubmit` | Warns the model as the context fills up. After a pause longer than the prompt-cache lifetime, **blocks the message once** and tells you what it would cost (the next turn re-writes the whole context into the cache — ~20 warm turns' worth) and whether the desk is up to date. Sending again goes through. |
-| `resume-desk.py` | `SessionStart` (`startup\|clear`) | Injects the project's open desk, so `/clear` resumes at the right step with no tool call. |
+| `resume-desk.py` | `SessionStart` (`startup\|clear`) | Injects the project's open desk, so `/clear` resumes at the right step with no tool call. Outside any project (an editor opened on `~`), lists the five most recently updated open desks across all projects, with project and age, and lets you pick. |
 | `statusline.sh` | `statusLine` | Context weight, plan quota, and the cache countdown: `cache 42m`, then `cache fredda`. |
 | `backup-brain.sh` | `Stop` (`async`) | Tars the brain at the end of each session, keeping the last 10. |
 

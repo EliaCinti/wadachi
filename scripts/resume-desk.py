@@ -43,6 +43,9 @@ _SOURCES = {"startup", "clear"}
 # Fuori da un progetto: quante scrivanie, le più recenti, prima di contare le altre.
 _RECENT = 5
 
+# Con più scrivanie davanti, scegliere spetta a Elia, non al modello.
+_ASK = "Non sceglierne una da solo: chiedi a Elia quale riprendere."
+
 
 def _clip(s: str, n: int) -> str:
     s = " ".join((s or "").split())
@@ -90,12 +93,16 @@ def _one(got: dict, project: str) -> str:
     return "\n".join(lines)
 
 
+def _line(got: dict, where: str = "") -> str:
+    step = got.get("next_step") or "piano finito"
+    tag = f" ({where})" if where else ""
+    return f"- `{got['slug']}`{tag} — prossimo: {_clip(step, 120)}"
+
+
 def _many(found: list[dict], project: str) -> str:
     lines = [f"## {len(found)} scrivanie aperte (progetto `{project}`)"]
-    for got in found:
-        step = got.get("next_step") or "piano finito"
-        lines.append(f"- `{got['slug']}` — prossimo: {_clip(step, 120)}")
-    lines.append("Non sceglierne una da solo: chiedi a Elia quale riprendere.")
+    lines += [_line(got) for got in found]
+    lines.append(_ASK)
     return "\n".join(lines)
 
 
@@ -123,16 +130,13 @@ def _recent(store, cwd: str) -> str:
         got = store.read_desk(d["slug"], d["project"])
         if not got or got.get("missing_file") or "text" not in got:
             continue
-        step = got.get("next_step") or "piano finito"
-        lines.append(f"- `{got['slug']}` ({got['project']}, {_age(got['updated_at'])}) "
-                     f"— prossimo: {_clip(step, 120)}")
+        lines.append(_line(got, f"{got['project']}, {_age(got['updated_at'])}"))
     if not lines:
         return ""
     if len(desks) > seen:
         lines.append(f"- … e altre {len(desks) - seen}.")
     head = f"## Scrivanie aperte più recenti (nessun progetto in {cwd})"
-    tail = "Non sceglierne una da solo: chiedi a Elia quale riprendere."
-    return "\n".join([head, *lines, tail])
+    return "\n".join([head, *lines, _ASK])
 
 
 def _cap(text: str, footer: str) -> str:

@@ -13,8 +13,10 @@ il formato è quello che il server produce, non una sua imitazione.
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -170,6 +172,92 @@ def test_le_scrivanie_chiuse_non_contano(repo, brain):
     assert b["slug"] in t and a["slug"] not in t
 
 
+# ── fuori da un progetto ────────────────────────────────────────────────────
+#
+# Elia apre spesso VSCode sulla home, che non è di nessun progetto: lì la
+# ripresa mostra le scrivanie aperte più recenti di tutti i progetti.
+
+
+@pytest.fixture()
+def fuori(tmp_path):
+    d = tmp_path / "fuori"
+    d.mkdir()
+    return d
+
+
+def aged(brain, d, days: float):
+    """Sposta indietro l'ultimo aggiornamento della scrivania, file e indice."""
+    from wadachi import desk as D
+
+    stamp = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    path = brain.brain_dir / d["filepath"]
+    path.write_text(D.set_meta(path.read_text(), "updated", stamp))
+    with sqlite3.connect(brain.brain_dir / "brain.db") as conn:
+        conn.execute("UPDATE desks SET updated_at = ? WHERE slug = ? AND project = ?",
+                     (stamp, d["slug"], d["project"]))
+    return d
+
+
+def test_fuori_progetto_le_piu_recenti_di_tutti(repo, brain, fuori):
+    vecchia = aged(brain, desk(brain, title="Lavoro vecchio", plan=["passo vecchio"]), 3)
+    nuova = brain.open_desk(title="Lavoro di stamattina", objective="o", done_when="d",
+                            plan=["passo nuovo"], project="global")
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert str(fuori) in t
+    assert nuova["slug"] in t and vecchia["slug"] in t
+    assert "(global, oggi)" in t and "(proj, 3 g fa)" in t
+    assert "passo nuovo" in t and "passo vecchio" in t
+    assert t.index("passo nuovo") < t.index("passo vecchio"), "la più recente prima"
+    assert "chiedi a Elia" in t
+
+
+def test_fuori_progetto_il_piede_dice_project(repo, brain, fuori):
+    """Dalla home, desk_read con la cwd risolverebbe a `global`."""
+    desk(brain)
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert "project=" in t and "cwd=" not in t
+
+
+@pytest.mark.parametrize("days, label", [(0, "oggi"), (1, "ieri"), (5, "5 g fa")])
+def test_fuori_progetto_l_eta(repo, brain, fuori, days, label):
+    aged(brain, desk(brain), days)
+    assert f"(proj, {label})" in context(start(repo, brain, cwd=fuori)[1])
+
+
+def test_fuori_progetto_al_massimo_cinque(repo, brain, fuori):
+    made = [aged(brain, desk(brain, title=f"Lavoro {i}"), i) for i in range(7)]
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert all(d["slug"] in t for d in made[:5])
+    assert not any(d["slug"] in t for d in made[5:]), "le più vecchie si contano, non si mostrano"
+    assert "e altre 2" in t
+
+
+def test_fuori_progetto_niente_dettaglio_nemmeno_con_una(repo, brain, fuori):
+    """Senza progetto non si sa quale sia quella giusta: solo la riga."""
+    desk(brain)
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert "Colpire il turno a cache fredda." not in t
+
+
+def test_fuori_progetto_le_chiuse_non_contano(repo, brain, fuori):
+    a = desk(brain, title="Chiusa")
+    brain.close_desk(a["slug"], "done", project="proj")
+    assert start(repo, brain, cwd=fuori)[:2] == (0, "")
+
+
+def test_fuori_progetto_nessuna_scrivania_tace(repo, brain, fuori):
+    assert start(repo, brain, cwd=fuori)[:2] == (0, "")
+
+
+def test_fuori_progetto_resta_sotto_il_tetto(repo, brain, fuori):
+    lungo = "parola " * 3_000
+    for i in range(7):
+        desk(brain, title=f"Lavoro {i} " + "lungo " * 40, plan=[lungo])
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert len(t) // 4 <= CAP_TOKENS
+    assert "project=" in t, "il piede non si taglia mai"
+
+
 # ── il silenzio ─────────────────────────────────────────────────────────────
 
 
@@ -181,13 +269,6 @@ def test_scrivanie_di_altri_progetti_non_entrano(repo, brain, tmp_path):
     brain.register_project("altro", paths=[str(tmp_path / "altrove")])
     brain.open_desk(title="Altrui", objective="o", done_when="d", plan=["x"], project="altro")
     assert start(repo, brain)[:2] == (0, "")
-
-
-def test_progetto_non_rilevato_tace(repo, brain, tmp_path):
-    desk(brain)
-    fuori = tmp_path / "fuori"
-    fuori.mkdir()
-    assert start(repo, brain, cwd=fuori)[:2] == (0, "")
 
 
 @pytest.mark.parametrize("source", ["resume", "compact"])

@@ -13,6 +13,10 @@ modello se ne dimentichi.
 - **più scrivanie:** per ognuna slug e prossimo passo, senza sceglierne una;
 - **nessuna:** silenzio.
 
+Fuori da un progetto (VSCode aperto sulla home, per esempio) si mostrano le
+scrivanie aperte più recenti di tutti i progetti, una riga ciascuna con
+progetto ed età, senza dettaglio: non c'è modo di sapere quale sia quella giusta.
+
 Il progetto si rileva con la logica del server (`MemoryStore.detect_project`,
 importata, non riscritta). Il brain è quello di `BRAIN_DIR`, aperto con
 `create=False`: senza `BRAIN_DIR` non si cade sul default, e con l'SSD
@@ -35,6 +39,9 @@ _CAP_TOKENS = 1_200
 
 # Le fonti di SessionStart su cui si parla. Su `resume` il contesto c'è già.
 _SOURCES = {"startup", "clear"}
+
+# Fuori da un progetto: quante scrivanie, le più recenti, prima di contare le altre.
+_RECENT = 5
 
 
 def _clip(s: str, n: int) -> str:
@@ -92,6 +99,39 @@ def _many(found: list[dict], project: str) -> str:
     return "\n".join(lines)
 
 
+def _age(updated_at: str) -> str:
+    """Giorni di calendario, nell'ora locale: alle 9 una scrivania toccata alle
+    20 di ieri è di ieri, anche se sono passate meno di 24 ore."""
+    from datetime import datetime
+
+    then = datetime.fromisoformat(updated_at).astimezone().date()
+    days = (datetime.now().astimezone().date() - then).days
+    return "oggi" if days <= 0 else "ieri" if days == 1 else f"{days} g fa"
+
+
+def _recent(store, cwd: str) -> str:
+    """Le scrivanie aperte più recenti di tutti i progetti, senza sceglierne una."""
+    desks = store.list_desks(project=None, status="open")
+    lines, seen = [], 0
+    for d in desks:
+        if len(lines) == _RECENT:
+            break
+        seen += 1
+        got = store.read_desk(d["slug"], d["project"])
+        if not got or got.get("missing_file") or "text" not in got:
+            continue
+        step = got.get("next_step") or "piano finito"
+        lines.append(f"- `{got['slug']}` ({got['project']}, {_age(got['updated_at'])}) "
+                     f"— prossimo: {_clip(step, 120)}")
+    if not lines:
+        return ""
+    if len(desks) > seen:
+        lines.append(f"- … e altre {len(desks) - seen}.")
+    head = f"## Scrivanie aperte più recenti (nessun progetto in {cwd})"
+    tail = "Non sceglierne una da solo: chiedi a Elia quale riprendere."
+    return "\n".join([head, *lines, tail])
+
+
 def _cap(text: str, footer: str) -> str:
     """Taglia il corpo, mai il piede: lo slug per desk_read sta in testa e il
     modo di riprendere in fondo, ed entrambi devono arrivare interi."""
@@ -108,7 +148,10 @@ def build(cwd: str, brain: str) -> str:
     store = MemoryStore(brain, create=False)
     project = store.detect_project(cwd)
     if not project:
-        return ""
+        # Il piede dice `project=`: dalla cwd desk_read risolverebbe a `global`.
+        body = _recent(store, cwd)
+        footer = "Iniettate all'avvio da resume-desk. Testo completo: desk_read(slug=…, project=…)."
+        return _cap(body, footer) if body else ""
     found = []
     for d in store.list_desks(project=project, status="open"):
         got = store.read_desk(d["slug"], project)

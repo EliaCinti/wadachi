@@ -104,7 +104,10 @@ def _age(updated_at: str) -> str:
     20 di ieri è di ieri, anche se sono passate meno di 24 ore."""
     from datetime import datetime
 
-    then = datetime.fromisoformat(updated_at).astimezone().date()
+    try:
+        then = datetime.fromisoformat(updated_at).astimezone().date()
+    except (TypeError, ValueError):
+        return "data ignota"  # una data scritta a mano non spegne l'elenco intero
     days = (datetime.now().astimezone().date() - then).days
     return "oggi" if days <= 0 else "ieri" if days == 1 else f"{days} g fa"
 

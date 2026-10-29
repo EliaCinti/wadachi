@@ -224,6 +224,16 @@ def test_fuori_progetto_l_eta(repo, brain, fuori, days, label):
     assert f"(proj, {label})" in context(start(repo, brain, cwd=fuori)[1])
 
 
+def test_fuori_progetto_una_data_illeggibile_non_spegne_le_altre(repo, brain, fuori):
+    a = desk(brain, title="Data rotta")
+    b = desk(brain, title="Data buona")
+    with sqlite3.connect(brain.brain_dir / "brain.db") as conn:
+        conn.execute("UPDATE desks SET updated_at = '28 Ott' WHERE slug = ?", (a["slug"],))
+    t = context(start(repo, brain, cwd=fuori)[1])
+    assert a["slug"] in t and b["slug"] in t
+    assert "(proj, oggi)" in t
+
+
 def test_fuori_progetto_al_massimo_cinque(repo, brain, fuori):
     made = [aged(brain, desk(brain, title=f"Lavoro {i}"), i) for i in range(7)]
     t = context(start(repo, brain, cwd=fuori)[1])

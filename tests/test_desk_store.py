@@ -184,7 +184,7 @@ def test_concurrent_notes_from_many_threads_are_all_preserved(s, tmp_path):
     assert not any(t.is_alive() for t in threads), "un thread non è mai tornato (lock timeout?)"
     assert not errors, f"scritture concorrenti fallite: {errors!r}"
 
-    text = s.read_desk(d["slug"], project="overmind")["text"]
+    text = s.read_desk(d["slug"], project="overmind", full=True)["text"]
     missing = [note for note in notes if note not in text]
     assert not missing, f"note perse in scrittura concorrente: {missing}"
 
@@ -344,3 +344,41 @@ def test_case_risposte_new_steps_land_before_the_review_not_after_the_release(s)
     assert out["open_steps"] == ["Misura prima/dopo", "Posizione dei passi",
                                  "CHANGELOG, /code-review medium",
                                  "Rilascio 0.17.0"]
+
+
+# ── Taglio del registro in read_desk (piano 2026-10-28) ───────
+
+
+def test_read_desk_trims_log_to_three_by_default_without_touching_disk(s):
+    d = _open(s, objective="Obiettivo intatto.", done_when="criterio intatto",
+              plan=["uno", "due", "tre"])
+    s.log_desk(project="overmind", open_question="domanda aperta")
+    for i in range(1, 9):
+        s.log_desk(project="overmind", note=f"nota numero {i}")
+
+    on_disk = _text(s, d)
+    got = s.read_desk(d["slug"], project="overmind")
+    assert got["log_total"] == 8
+    assert got["log_shown"] == 3
+    assert "nota numero 8" in got["text"]
+    assert "nota numero 6" in got["text"]
+    assert "nota numero 5" not in got["text"]
+    assert "5 voci omesse" in got["text"]
+    assert "full=True" in got["text"]
+    assert "Obiettivo intatto." in got["text"]
+    assert "criterio intatto" in got["text"]
+    assert "- [ ] uno" in got["text"] and "- [ ] tre" in got["text"]
+    assert "- domanda aperta" in got["text"]
+    assert _text(s, d) == on_disk, "il file su disco non si tocca mai"
+
+
+def test_read_desk_full_true_returns_exact_file_from_disk(s):
+    d = _open(s)
+    for i in range(1, 9):
+        s.log_desk(project="overmind", note=f"nota numero {i}")
+
+    on_disk = _text(s, d)
+    got = s.read_desk(d["slug"], project="overmind", full=True)
+    assert got["log_total"] == 8
+    assert got["log_shown"] == 8
+    assert got["text"] == on_disk

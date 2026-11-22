@@ -94,13 +94,25 @@ _ENABLED = {
 }
 
 
+def _dumps(obj, **kwargs) -> str:
+    """Serializza JSON in UTF-8 leggibile: niente escape ASCII (\\u00e8) sul filo MCP."""
+    kwargs.setdefault("ensure_ascii", False)
+    return json.dumps(obj, **kwargs)
+
+
 def tool(*dargs, toolset: str = WORK, **dkwargs):
     """Come @mcp.tool(), ma con logging trasparente e un toolset.
 
     Uno strumento fuori dai toolset attivi resta una funzione normale del
     modulo — chiamabile dal CLI, dai test e dal manuale — semplicemente non
     viene registrato su MCP, quindi non costa contesto.
+
+    `structured_output=False` di default: tutti gli strumenti restituiscono
+    già testo (markdown o JSON); senza quel flag FastMCP li ri-avvolge in
+    `{"result": "<stringa escaped>"}`, raddoppiando gli escape sul filo.
     """
+    dkwargs.setdefault("structured_output", False)
+
     def deco(fn):
         _TOOLSETS[fn.__name__] = toolset
         wrapped = _instrumented(fn)
@@ -187,7 +199,7 @@ def brain_watermark(project: str | None = None) -> str:
             in `changed_since` — a project-scoped position means nothing when
             compared against another project's ids.
     """
-    return json.dumps(store.watermark(project), indent=2)
+    return _dumps(store.watermark(project), indent=2)
 
 
 @tool()
@@ -203,7 +215,7 @@ def changed_since(watermark: dict, project: str | None = None, limit: int = 50) 
         project: same scope you used when taking the watermark.
         limit: maximum rows per table.
     """
-    return json.dumps(store.changed_since(watermark, project, limit), indent=2)
+    return _dumps(store.changed_since(watermark, project, limit), indent=2)
 
 
 @tool()
@@ -234,7 +246,7 @@ def store_memory(
         text=f"{title}. Tags: {', '.join(tags or [])}. {content[:1000]}",
         project=project, watermark=since_watermark,
     )
-    return json.dumps(result, indent=2)
+    return _dumps(result, indent=2)
 
 
 @tool()
@@ -270,12 +282,12 @@ def recall(
                                     "title": x["title"][:70]} for x in linked]
     if not results:
         mode = "semantic" if search_engine.semantic_available else "keyword"
-        return json.dumps({
+        return _dumps({
             "results": [],
             "message": f"No relevant memories found (search mode: {mode}). Consider storing useful information as you work.",
         })
 
-    return json.dumps({
+    return _dumps({
         "results": results,
         "search_mode": "semantic" if search_engine.semantic_available else "keyword",
         "count": len(results),
@@ -291,8 +303,8 @@ def get_memory(memory_id: int) -> str:
     """
     result = store.get_memory(memory_id)
     if result is None:
-        return json.dumps({"error": f"Memory #{memory_id} not found."})
-    return json.dumps(result, indent=2)
+        return _dumps({"error": f"Memory #{memory_id} not found."})
+    return _dumps(result, indent=2)
 
 
 @tool()
@@ -307,7 +319,7 @@ def list_memories(
         category: Filter by category (architecture, bugfix, config, pattern, context, reference, note).
     """
     results = store.list_memories(project, category)
-    return json.dumps({"memories": results, "count": len(results)}, indent=2)
+    return _dumps({"memories": results, "count": len(results)}, indent=2)
 
 
 @tool()
@@ -325,8 +337,8 @@ def update_memory(
     """
     success = store.update_memory(memory_id, content, tags)
     if success:
-        return json.dumps({"status": "updated", "id": memory_id})
-    return json.dumps({"error": f"Memory #{memory_id} not found."})
+        return _dumps({"status": "updated", "id": memory_id})
+    return _dumps({"error": f"Memory #{memory_id} not found."})
 
 
 @tool()
@@ -338,8 +350,8 @@ def delete_memory(memory_id: int) -> str:
     """
     success = store.delete_memory(memory_id)
     if success:
-        return json.dumps({"status": "deleted", "id": memory_id})
-    return json.dumps({"error": f"Memory #{memory_id} not found."})
+        return _dumps({"status": "deleted", "id": memory_id})
+    return _dumps({"error": f"Memory #{memory_id} not found."})
 
 
 # ── Decision Tools ────────────────────────────────────────────
@@ -374,7 +386,7 @@ def store_decision(
         text=f"{decision}. {rationale} {context}",
         project=project, watermark=since_watermark,
     )
-    return json.dumps(result, indent=2)
+    return _dumps(result, indent=2)
 
 
 @tool()
@@ -389,7 +401,7 @@ def list_decisions(
         limit: Maximum number of decisions to return.
     """
     results = store.list_decisions(project, limit)
-    return json.dumps({"decisions": results, "count": len(results)}, indent=2)
+    return _dumps({"decisions": results, "count": len(results)}, indent=2)
 
 
 # ── Project Tools ─────────────────────────────────────────────
@@ -409,14 +421,14 @@ def register_project(
         paths: Filesystem paths associated with this project (for auto-detection).
     """
     result = store.register_project(name, description, paths)
-    return json.dumps(result, indent=2)
+    return _dumps(result, indent=2)
 
 
 @tool()
 def list_projects() -> str:
     """Use this when you need to know which project names exist before scoping a memory."""
     results = store.list_projects()
-    return json.dumps({"projects": results, "count": len(results)}, indent=2)
+    return _dumps({"projects": results, "count": len(results)}, indent=2)
 
 
 # ── Context Tool (the killer feature) ────────────────────────
@@ -674,7 +686,7 @@ def get_context(
     context["stats"] = store.stats()
 
     if format == "json":
-        return json.dumps(context, indent=2)
+        return _dumps(context, indent=2)
     return _render_context_dense(context, max_tokens, project)
 
 
@@ -689,7 +701,7 @@ def expand_memory(ids: list[int]) -> str:
     for mid in ids[:10]:
         m = store.get_memory(mid)
         out.append(m if m else {"id": mid, "error": "not found"})
-    return json.dumps({"memories": out, "count": len(out)}, indent=2)
+    return _dumps({"memories": out, "count": len(out)}, indent=2)
 
 
 # ── Status Tool ───────────────────────────────────────────────
@@ -699,12 +711,19 @@ def expand_memory(ids: list[int]) -> str:
 def brain_status() -> str:
     """Use this when something looks wrong — nothing recalled, a project missing — to see what the brain actually holds."""
     stats = store.stats()
-    return json.dumps({
+    payload = {
         "brain_dir": str(store.brain_dir),
         "search_mode": "semantic (fastembed)" if search_engine.semantic_available else "keyword (fastembed not installed)",
         "stats": stats,
         "projects": store.list_projects(),
-    }, indent=2)
+    }
+    if not search_engine.semantic_available and sys.version_info >= (3, 15):
+        payload["search_note"] = (
+            "Python 3.15: onnxruntime non pubblica ancora wheel cp315, quindi "
+            "l'extra semantic degrada a keyword. Per la ricerca semantica: "
+            "uv tool install --python 3.14 'wadachi[semantic]'."
+        )
+    return _dumps(payload, indent=2)
 
 
 # ── Constellation: graph-aware recall (the differentiator) ───
@@ -739,11 +758,11 @@ def recall_associative(query: str, project: str | None = None, limit: int = 5) -
     """
     g = _assoc_graph(project)
     try:
-        return json.dumps(g.associative_recall(query, limit=limit), indent=2)
+        return _dumps(g.associative_recall(query, limit=limit), indent=2)
     except RuntimeError as e:
         # senza fastembed il recall associativo non può embeddare la query:
         # niente crash MCP — errore chiaro + fallback keyword utilizzabile
-        return json.dumps({
+        return _dumps({
             "error": str(e),
             "hint": "recall_associative richiede la ricerca semantica: pip install 'wadachi[semantic]'.",
             "keyword_fallback": json.loads(recall(query, project=project, limit=limit)),
@@ -759,7 +778,7 @@ def related_memories(memory_id: int, limit: int = 8) -> str:
         limit: Max neighbours to return.
     """
     g = _assoc_graph(None)
-    return json.dumps({"id": memory_id, "related": g.related(memory_id, limit)}, indent=2)
+    return _dumps({"id": memory_id, "related": g.related(memory_id, limit)}, indent=2)
 
 
 @tool()
@@ -779,7 +798,7 @@ def memory_graph(project: str | None = None, focus_id: int | None = None,
     out["mermaid"] = g.to_mermaid(focus=focus_id)
     if include_entities:
         out["entity_graph"] = EntityGraph(store).summary()
-    return json.dumps(out, indent=2)
+    return _dumps(out, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
@@ -790,7 +809,7 @@ def rebuild_entity_graph(project: str | None = None) -> str:
     Requires `graphifyy` installed (pip install graphifyy). Cached under
     BRAIN_DIR/.constellation so other tools read it instantly.
     """
-    return json.dumps(EntityGraph(store).rebuild(), indent=2)
+    return _dumps(EntityGraph(store).rebuild(), indent=2)
 
 
 @tool()
@@ -800,7 +819,7 @@ def memory_history(memory_id: int) -> str:
     Args:
         memory_id: The memory whose edit history to retrieve.
     """
-    return json.dumps({"id": memory_id, "history": store.get_memory_history(memory_id)}, indent=2)
+    return _dumps({"id": memory_id, "history": store.get_memory_history(memory_id)}, indent=2)
 
 
 # ── Belief revision (Phase 2) ────────────────────────────────
@@ -835,7 +854,7 @@ def review_beliefs(project: str | None = None) -> str:
         project: Scope to a project (None = whole brain).
     """
     flagged = BeliefReviewer(store).scan(project=project)
-    return json.dumps({"flagged": flagged, "count": len(flagged)}, indent=2)
+    return _dumps({"flagged": flagged, "count": len(flagged)}, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
@@ -852,7 +871,7 @@ def set_belief(memory_id: int, confidence: float | None = None, status: str | No
         review_reason: why the status/confidence changed.
         superseded_by: id of the memory that replaced this one.
     """
-    return json.dumps(store.set_belief(memory_id, confidence=confidence, status=status,
+    return _dumps(store.set_belief(memory_id, confidence=confidence, status=status,
                                        valid_until=valid_until, review_reason=review_reason,
                                        superseded_by=superseded_by), indent=2)
 
@@ -866,7 +885,7 @@ def flag_stale(memory_id: int, reason: str, superseded_by: int | None = None) ->
         reason: Why it's stale.
         superseded_by: id of the memory that replaced it, if any.
     """
-    return json.dumps(store.set_belief(memory_id, status="stale", review_reason=reason,
+    return _dumps(store.set_belief(memory_id, status="stale", review_reason=reason,
                                        superseded_by=superseded_by), indent=2)
 
 
@@ -887,14 +906,14 @@ def reflect(project: str | None = None, limit: int = 15, store_them: bool = True
     """
     cands = Reflector(store).candidates(project=project, limit=limit)
     saved = [store.store_insight(c["claim"], c["itype"], c["evidence_ids"]) for c in cands] if store_them else []
-    return json.dumps({"candidates": cands, "stored": len(saved), "count": len(cands)}, indent=2)
+    return _dumps({"candidates": cands, "stored": len(saved), "count": len(cands)}, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
 def list_insights(status: str | None = "proposed") -> str:
     """List reflection insights, optionally by status (proposed | accepted | rejected)."""
     items = store.list_insights(status=status)
-    return json.dumps({"insights": items, "count": len(items)}, indent=2)
+    return _dumps({"insights": items, "count": len(items)}, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
@@ -908,14 +927,14 @@ def accept_insight(insight_id: int, project: str = "global") -> str:
     """
     ins = store.get_insight(insight_id)
     if not ins:
-        return json.dumps({"error": f"Insight #{insight_id} not found."})
+        return _dumps({"error": f"Insight #{insight_id} not found."})
     store.set_insight_status(insight_id, "accepted")
     refs = " ".join(f"[[#{m}]]" for m in ins["evidence_ids"])
     mem = store.store_memory(
         content=f"{ins['claim']}\n\nDeriva da: {refs}",
         title=f"Insight: {ins['claim'][:60]}",
         project=project, tags=["insight", ins["itype"]], category="context")
-    return json.dumps({"status": "accepted", "insight_id": insight_id, "memory": mem}, indent=2)
+    return _dumps({"status": "accepted", "insight_id": insight_id, "memory": mem}, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
@@ -926,7 +945,7 @@ def reject_insight(insight_id: int) -> str:
         insight_id: The insight to reject.
     """
     ok = store.set_insight_status(insight_id, "rejected")
-    return json.dumps({"status": "rejected" if ok else "not_found", "insight_id": insight_id})
+    return _dumps({"status": "rejected" if ok else "not_found", "insight_id": insight_id})
 
 
 # ── Provenienza e tempo (Fase 7.B) ───────────────────────────
@@ -949,7 +968,7 @@ def why(question: str, project: str | None = None, limit: int = 2) -> str:
                                             limit=limit * 4, include_decisions=True)
             if r.get("type") == "decision"][:limit]
     if not hits:
-        return json.dumps({"answers": [], "message":
+        return _dumps({"answers": [], "message":
                            "Nessuna decisione registrata corrisponde. Prova recall(), "
                            "o registra la scelta con store_decision la prossima volta."})
 
@@ -973,7 +992,7 @@ def why(question: str, project: str | None = None, limit: int = 2) -> str:
             "cited_by": evidence,
             "score": h["score"],
         })
-    return json.dumps({"question": question, "answers": answers}, indent=2)
+    return _dumps({"question": question, "answers": answers}, indent=2)
 
 
 @tool()
@@ -1023,7 +1042,7 @@ def as_of(date: str, query: str | None = None, project: str | None = None,
                 entry["content_as_of"] = content[:1500]
         out.append(entry)
 
-    return json.dumps({"as_of": date, "memories": out, "count": len(out)}, indent=2)
+    return _dumps({"as_of": date, "memories": out, "count": len(out)}, indent=2)
 
 
 @tool(toolset=MAINTENANCE)
@@ -1095,7 +1114,7 @@ def sleep(project: str | None = None, min_similarity: float = 0.78) -> str:
         from pathlib import Path as _Path
         cache_dir = _Path(store.brain_dir) / "logs"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        (cache_dir / "sleep-cache.json").write_text(json.dumps({
+        (cache_dir / "sleep-cache.json").write_text(_dumps({
             "ts": datetime.now(timezone.utc).isoformat(),
             "merge": len(merge_candidates), "decay": len(decay_candidates),
             "orphans": len(st["orphans"]),
@@ -1103,7 +1122,7 @@ def sleep(project: str | None = None, min_similarity: float = 0.78) -> str:
     except OSError:
         pass
 
-    return json.dumps({
+    return _dumps({
         "merge_candidates": merge_candidates[:8],
         "decay_candidates": decay_candidates[:12],
         "orphans": st["orphans"][:12],
@@ -1133,13 +1152,13 @@ def consolidate(project: str | None = None, threshold: float = 0.86, max_groups:
         max_groups: Max candidate groups to return.
     """
     if not search_engine.semantic_available:
-        return json.dumps({"error": "consolidate richiede la ricerca semantica",
+        return _dumps({"error": "consolidate richiede la ricerca semantica",
                            "hint": "pip install 'wadachi[semantic]'"})
     import numpy as np
     mems = [m for m in store.get_memories_for_embedding(project)
             if store.get_belief(m["id"])["status"] == "active"]
     if len(mems) < 2:
-        return json.dumps({"groups": [], "count": 0})
+        return _dumps({"groups": [], "count": 0})
     search_engine._ensure_memory_embeddings(mems)
     mems = [m for m in mems if m.get("embedding") is not None]
 
@@ -1180,7 +1199,7 @@ def consolidate(project: str | None = None, threshold: float = 0.86, max_groups:
                           "preview": mems[i]["content"][:140]} for i in members],
         })
     groups.sort(key=lambda g: -g["similarity"])
-    return json.dumps({
+    return _dumps({
         "groups": groups[:max_groups],
         "count": len(groups[:max_groups]),
         "how_to_merge": "scrivi tu la sintesi, poi: merge_memories(source_ids=[...], title=..., content=...)",
@@ -1201,10 +1220,10 @@ def merge_memories(source_ids: list[int], title: str, content: str,
         tags: Tags for the merged memory.
     """
     if len(source_ids) < 2:
-        return json.dumps({"error": "servono almeno 2 memorie da fondere"})
+        return _dumps({"error": "servono almeno 2 memorie da fondere"})
     missing = [i for i in source_ids if store.get_memory(i) is None]
     if missing:
-        return json.dumps({"error": f"memorie inesistenti: {missing}"})
+        return _dumps({"error": f"memorie inesistenti: {missing}"})
 
     refs = " ".join(f"[[#{i}]]" for i in source_ids)
     mem = store.store_memory(
@@ -1215,7 +1234,7 @@ def merge_memories(source_ids: list[int], title: str, content: str,
     for sid in source_ids:
         store.set_belief(sid, status="stale", superseded_by=mem["id"],
                          review_reason=f"consolidata in #{mem['id']}")
-    return json.dumps({"status": "merged", "memory": mem,
+    return _dumps({"status": "merged", "memory": mem,
                        "superseded": source_ids}, indent=2)
 
 
@@ -1228,7 +1247,7 @@ def review_procedures(project: str | None = None) -> str:
         project: Scope to a project (None = whole brain).
     """
     rules = ProceduralReviewer(store).review(project=project)
-    return json.dumps({"candidate_rules": rules, "count": len(rules)}, indent=2)
+    return _dumps({"candidate_rules": rules, "count": len(rules)}, indent=2)
 
 
 # ── La scrivania: lo stato del lavoro in corso ────────────────
@@ -1267,39 +1286,43 @@ def desk(action: str, title: str = "", objective: str = "", done_when: str = "",
     project = project or (store.detect_project(cwd) if cwd else None) or "global"
     try:
         if action == "open":
-            return json.dumps(store.open_desk(title, objective, done_when,
+            return _dumps(store.open_desk(title, objective, done_when,
                                               plan or [], project), indent=2)
         if action == "close":
-            return json.dumps(store.close_desk(slug, outcome, project,
+            return _dumps(store.close_desk(slug, outcome, project,
                                                distil or None), indent=2)
         if action == "list":
-            return json.dumps(store.list_desks(project, status="open"), indent=2)
-        return json.dumps({"error": f"action sconosciuta: {action}"}, indent=2)
+            return _dumps(store.list_desks(project, status="open"), indent=2)
+        return _dumps({"error": f"action sconosciuta: {action}"}, indent=2)
     except ValueError as e:
-        return json.dumps({"error": str(e)}, indent=2)
+        return _dumps({"error": str(e)}, indent=2)
 
 
 @tool()
-def desk_read(slug: str = "", cwd: str = "", project: str | None = None) -> str:
+def desk_read(slug: str = "", full: bool = False, cwd: str = "",
+              project: str | None = None) -> str:
     """Use this when you are picking work back up and need to know where it
     stopped — the plan, the next step, and what was already tried and failed.
 
     Without a slug it opens the one desk left open in this project; if several
-    are open it lists them rather than guessing.
+    are open it lists them rather than guessing. By default the log is trimmed
+    to the 3 most recent entries (the file on disk is untouched); pass
+    `full=True` to read the entire history.
 
     Args:
         slug: which desk (omit to resolve the one open desk in this project).
+        full: return the full log instead of the 3 most recent entries.
         cwd: the caller's working directory, used to detect which project this
             desk belongs to (the server cannot see where you are — it may have
             been started from anywhere).
         project: overrides detection — defaults to the project detected from cwd.
     """
     project = project or (store.detect_project(cwd) if cwd else None) or "global"
-    got = store.read_desk(slug or None, project)
+    got = store.read_desk(slug or None, project, full=full)
     if got is None:
-        return json.dumps({"desks": store.list_desks(project),
-                           "note": "nessuna scrivania aperta qui"}, indent=2)
-    return json.dumps(got, indent=2)
+        return _dumps({"desks": store.list_desks(project),
+                       "note": "nessuna scrivania aperta qui"}, indent=2)
+    return _dumps(got, indent=2)
 
 
 @tool()
@@ -1330,7 +1353,7 @@ def desk_log(slug: str = "", done: str = "", note: str = "",
         project: overrides detection — defaults to the project detected from cwd.
     """
     project = project or (store.detect_project(cwd) if cwd else None) or "global"
-    return json.dumps(store.log_desk(slug or None, project, done or None,
+    return _dumps(store.log_desk(slug or None, project, done or None,
                                      note or None, open_question or None,
                                      add or None, before or None, at_end),
                       indent=2)
@@ -1350,6 +1373,17 @@ def _manual_text() -> str:
         "",
         "Le descrizioni brevi degli strumenti dicono *quando* usarli. Questo è il",
         "resto: cosa fa ciascuno per intero, e cosa esiste fuori dal menù.",
+        "",
+        "## Regole della scrivania",
+        "",
+        "- **Niente passo-ombrello** sopra i sotto-passi: `desk_log` restituisce",
+        "  sempre il primo passo non spuntato; un passo contenitore lasciato aperto",
+        "  blocca il cursore.",
+        "- **Posizione dei passi nuovi:** quando aggiungi passi con `add=[…]` su un",
+        "  piano con passi aperti, indica sempre dove vanno (`before=\"etichetta o",
+        "  prefisso\"` oppure `at_end=True`); il server non accoda più in silenzio.",
+        "- **Ciò che non è un passo va in `open_question`:** debiti tecnici, piani",
+        "  futuri o promemoria ricorrenti («dopo ogni merge…») non vanno in `## Piano`.",
         "",
         f"## In menù ({len(_EXPOSED)} strumenti — mentre si lavora)",
         "",

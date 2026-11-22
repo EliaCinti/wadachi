@@ -4,7 +4,8 @@ import pytest
 
 from wadachi.desk import (add_log, add_open, add_steps, desk_slug, done_when,
                           next_step, open_steps, parse_plan, render_desk,
-                          resolve_step, section_text, set_meta, tick_step)
+                          resolve_step, section_text, set_meta, tick_step,
+                          trim_log)
 
 DESK = """---
 type: desk
@@ -245,3 +246,64 @@ def test_set_meta_inserts_regex_special_characters_literally():
     value = r"a.b*c\1d\g<0>"
     out = set_meta(DESK, "slug", value)
     assert f"slug: {value}" in out
+
+
+# ── Taglio del registro (piano 2026-10-28-risposte-che-costano-meno) ──
+
+
+def _desk_with_logs(n: int) -> str:
+    text = DESK.replace("- **20:00** — nota vecchia\n", "")
+    for i in range(1, n + 1):
+        text = add_log(text, f"voce numero {i}", when=f"10:{i:02d}")
+    return text
+
+
+def test_trim_log_keeps_last_three_entries_and_adds_omission_line():
+    raw = _desk_with_logs(8)
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 8 and shown == 3
+    for i in (8, 7, 6):
+        assert f"voce numero {i}" in trimmed
+    for i in (5, 4, 3, 2, 1):
+        assert f"voce numero {i}" not in trimmed
+    assert "5 voci omesse" in trimmed
+    assert "full=True" in trimmed
+    # Tutte le altre sezioni restano intatte
+    assert "## Obiettivo\nFare la cosa.\n**Fatto quando:** i test passano." in trimmed
+    assert "## Piano\n- [x] primo\n- [ ] secondo\n- [x] terzo fuori ordine\n- [ ] quarto" in trimmed
+    assert "## Aperto\n- una domanda" in trimmed
+
+
+def test_trim_log_leaves_three_or_fewer_entries_untouched():
+    for n in (0, 1, 3):
+        raw = _desk_with_logs(n)
+        trimmed, total, shown = trim_log(raw, keep=3)
+        assert total == n and shown == n
+        assert trimmed == raw
+
+
+def test_trim_log_uses_singular_when_one_entry_is_omitted():
+    raw = _desk_with_logs(4)
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 4 and shown == 3
+    assert "1 voce omessa" in trimmed
+    assert "voce numero 1" not in trimmed
+
+
+def test_trim_log_with_keep_none_returns_full_text_and_counts():
+    raw = _desk_with_logs(8)
+    out, total, shown = trim_log(raw, keep=None)
+    assert out == raw
+    assert total == 8 and shown == 8
+
+
+def test_trim_log_keeps_multiline_entries_together():
+    raw = _desk_with_logs(4).replace(
+        "voce numero 2", "voce numero 2\n  dettaglio seconda riga",
+    ).replace(
+        "voce numero 1", "voce numero 1\n  dettaglio da omettere",
+    )
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 4 and shown == 3
+    assert "dettaglio seconda riga" in trimmed
+    assert "dettaglio da omettere" not in trimmed

@@ -195,6 +195,53 @@ def add_log(text: str, line: str, when: str) -> str:
     return "\n".join(lines)
 
 
+def trim_log(text: str, keep: int | None = 3) -> tuple[str, int, int]:
+    """Riduce `## Registro` alle ultime `keep` voci (che stanno in cima),
+    lasciando intatto tutto il resto — e il file su disco non si tocca.
+
+    Una voce comincia per `- **` (come in `add_log` e `resume-desk.py`);
+    le righe di continuazione restano attaccate alla propria voce. Con
+    `keep=None` restituisce il testo intero e conta solo le voci."""
+    start, end = _section(text, LOG)
+    if start < 0:
+        return (text, 0, 0)
+    lines = text.split("\n")
+    sec = lines[start:end]
+
+    body_end = len(sec)
+    while body_end > 0 and not sec[body_end - 1].strip():
+        body_end -= 1
+    trailing_blanks = len(sec) - body_end
+
+    preamble: list[str] = []
+    entries: list[list[str]] = []
+    for line in sec[:body_end]:
+        if line.startswith("- **"):
+            entries.append([line])
+        elif entries:
+            entries[-1].append(line)
+        else:
+            preamble.append(line)
+
+    total = len(entries)
+    if keep is None or keep < 0 or total <= keep:
+        return (text, total, total)
+
+    omitted = total - keep
+    label = "voce omessa" if omitted == 1 else "voci omesse"
+    note = f"… ({omitted} {label} nel registro — desk_read(full=True) per il file intero)"
+
+    new_sec: list[str] = list(preamble)
+    for entry in entries[:keep]:
+        new_sec.extend(entry)
+    while new_sec and not new_sec[-1].strip():
+        new_sec.pop()
+    new_sec.append(note)
+    new_sec.extend([""] * trailing_blanks)
+
+    return ("\n".join(lines[:start] + new_sec + lines[end:]), total, keep)
+
+
 def add_open(text: str, line: str) -> str:
     """Una riga in fondo alle questioni aperte."""
     start, end = _section(text, OPEN)

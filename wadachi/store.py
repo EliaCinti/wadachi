@@ -953,8 +953,12 @@ class MemoryStore:
                           f"rimossa dall'indice (cancellata o spostata a mano?)",
                 "slug": slug, "project": project, "missing_file": True}
 
-    def read_desk(self, slug: str | None = None, project: str | None = None) -> dict | None:
-        """La scrivania e il suo prossimo passo. Senza slug: l'unica aperta."""
+    def read_desk(self, slug: str | None = None, project: str | None = None,
+                  full: bool = False) -> dict | None:
+        """La scrivania e il suo prossimo passo. Senza slug: l'unica aperta.
+
+        Con `full=False` (default) il registro è tagliato alle ultime 3 voci;
+        il file su disco resta intero e `full=True` lo restituisce com'è."""
         from . import desk as D
         with self._conn() as conn:
             row = self._resolve_desk(conn, slug, project)
@@ -964,13 +968,15 @@ class MemoryStore:
                     return {"ambiguous": True, "desks": open_ones}
                 return None
         try:
-            text = (self.brain_dir / row["filepath"]).read_text(encoding="utf-8")
+            raw = (self.brain_dir / row["filepath"]).read_text(encoding="utf-8")
         except FileNotFoundError:
             return self._forget_missing_desk(row["slug"], row["project"])
+        text, log_total, log_shown = D.trim_log(raw, keep=None if full else 3)
         return {"slug": row["slug"], "project": row["project"],
                 "title": row["title"], "status": row["status"],
                 "filepath": row["filepath"], "updated_at": row["updated_at"],
-                "text": text, "next_step": D.next_step(text)}
+                "text": text, "next_step": D.next_step(raw),
+                "log_total": log_total, "log_shown": log_shown}
 
     def list_desks(self, project: str | None = None, status: str | None = "open") -> list[dict]:
         q = "SELECT slug, project, title, status, updated_at FROM desks WHERE 1=1"

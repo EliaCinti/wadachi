@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from wadachi.desk import parse_plan
 from wadachi.store import MemoryStore
 
 
@@ -183,7 +184,7 @@ def test_concurrent_notes_from_many_threads_are_all_preserved(s, tmp_path):
     assert not any(t.is_alive() for t in threads), "un thread non è mai tornato (lock timeout?)"
     assert not errors, f"scritture concorrenti fallite: {errors!r}"
 
-    text = s.read_desk(d["slug"], project="overmind")["text"]
+    text = s.read_desk(d["slug"], project="overmind", full=True)["text"]
     missing = [note for note in notes if note not in text]
     assert not missing, f"note perse in scrittura concorrente: {missing}"
 
@@ -218,3 +219,166 @@ def test_closing_archives_the_file_and_deletes_nothing(s):
     s.close_desk(d["slug"], "abandoned", project="overmind")
     archived = s.brain_dir / "desks" / "overmind" / "archived" / f"{d['slug']}.md"
     assert archived.exists()
+
+
+# ── Dove va un passo nuovo (piano 2026-10-29-passi-rimandati) ──
+#
+# Chi aggiunge sa dove va il passo; il server lo esegue e non indovina mai.
+# Un'aggiunta senza posizione su un piano con passi aperti è rifiutata per
+# intero: nessuna scrittura, nemmeno la spunta o la nota della stessa chiamata.
+
+
+def _text(s, d):
+    return (s.brain_dir / d["filepath"]).read_text(encoding="utf-8")
+
+
+def test_adding_without_a_position_while_steps_are_open_is_refused(s):
+    d = _open(s)
+    before = _text(s, d)
+    out = s.log_desk(project="overmind", done="leggere", note="fatto",
+                     add=["nuovo"])
+    assert "error" in out
+    assert out["open_steps"] == ["leggere", "estrarre", "verificare"]
+    assert out["next_step"] == "leggere"
+    assert _text(s, d) == before, "un rifiuto non scrive niente, spunta compresa"
+
+
+def test_adding_before_a_step_puts_it_there_and_lists_the_open_steps(s):
+    _open(s)
+    out = s.log_desk(project="overmind", add=["capire"], before="estrarre")
+    assert "error" not in out
+    assert out["open_steps"] == ["leggere", "capire", "estrarre", "verificare"]
+
+
+def test_before_takes_a_unique_prefix(s):
+    _open(s)
+    out = s.log_desk(project="overmind", add=["capire"], before="estr")
+    assert out["open_steps"] == ["leggere", "capire", "estrarre", "verificare"]
+
+
+def test_before_an_unknown_step_is_refused_with_the_open_steps(s):
+    d = _open(s)
+    before = _text(s, d)
+    out = s.log_desk(project="overmind", add=["x"], before="non esiste")
+    assert "error" in out and out["open_steps"] == ["leggere", "estrarre", "verificare"]
+    assert _text(s, d) == before
+
+
+def test_before_a_ticked_step_is_refused(s):
+    """Si risolve sul piano dopo la spunta della stessa chiamata: davanti a un
+    passo appena fatto non c'è niente da mettere."""
+    d = _open(s)
+    before = _text(s, d)
+    out = s.log_desk(project="overmind", done="leggere", add=["x"], before="leggere")
+    assert "error" in out
+    assert _text(s, d) == before
+
+
+def test_before_and_at_end_together_are_refused(s):
+    d = _open(s)
+    before = _text(s, d)
+    out = s.log_desk(project="overmind", add=["x"], before="estrarre", at_end=True)
+    assert "error" in out
+    assert _text(s, d) == before
+
+
+def test_a_position_without_steps_to_add_is_refused(s):
+    d = _open(s)
+    before = _text(s, d)
+    out = s.log_desk(project="overmind", note="n", before="estrarre")
+    assert "error" in out
+    assert _text(s, d) == before
+
+
+def test_at_end_appends_on_purpose(s):
+    _open(s)
+    out = s.log_desk(project="overmind", add=["dopo tutto"], at_end=True)
+    assert out["open_steps"] == ["leggere", "estrarre", "verificare", "dopo tutto"]
+
+
+def test_on_a_finished_plan_adding_needs_no_position(s):
+    """Non c'è niente da scavalcare: si accoda come prima."""
+    _open(s, plan=["solo"])
+    out = s.log_desk(project="overmind", done="solo", add=["un altro"])
+    assert "error" not in out
+    assert out["next_step"] == "un altro"
+
+
+def test_case_29_oct_new_work_lands_before_the_deferred_step(s):
+    """`la-cache-ha-un-orologio`: i passi nuovi finivano dietro «Dopo la PR»
+    e il cursore indicava quello."""
+    _open(s, plan=["[PM] resume-desk senza progetto",
+                   "Dopo la PR: valutare gli accenti"])
+    refused = s.log_desk(project="overmind", done="[PM] resume-desk senza progetto",
+                         add=["Ripresa: branch", "Ripresa: test"])
+    assert "error" in refused
+    out = s.log_desk(project="overmind", done="[PM] resume-desk senza progetto",
+                     add=["Ripresa: branch", "Ripresa: test"], before="Dopo la PR")
+    assert out["next_step"] == "Ripresa: branch"
+    assert out["open_steps"][-1] == "Dopo la PR: valutare gli accenti"
+
+
+def test_case_feynotes_substeps_land_before_the_review(s):
+    """`figure-per-ogni-corso`: F5b e F5c finivano dopo F11 [REVIEW]."""
+    _open(s, plan=["F1. banco", "F5. figure per corso", "F6. blocca",
+                   "F10. collaudo", "F11. [REVIEW] chiusura"])
+    s.log_desk(project="overmind", done="F1. banco")
+    assert "error" in s.log_desk(project="overmind", add=["F5b"], before="F1"), \
+        "F1 è fatto e il prefisso prende F10 e F11: ambiguo"
+    s.log_desk(project="overmind", add=["F5b. porta TikZ"], before="F6")
+    s.log_desk(project="overmind", add=["F5c. revisione schemi"], before="F6")
+    out = s.log_desk(project="overmind", done="F5. figure per corso")
+    assert out["next_step"] == "F5b. porta TikZ"
+    assert s.read_desk(project="overmind")["next_step"] == "F5b. porta TikZ"
+    plan = [label for _, label in parse_plan(s.read_desk(project="overmind")["text"])]
+    assert plan.index("F5c. revisione schemi") < plan.index("F6. blocca")
+
+
+def test_case_risposte_new_steps_land_before_the_review_not_after_the_release(s):
+    """`risposte-che-costano-meno`: sei passi da mettere prima della review,
+    mentre `add` li avrebbe messi dietro il rilascio."""
+    _open(s, plan=["Misura prima/dopo", "CHANGELOG, /code-review medium",
+                   "Rilascio 0.17.0"])
+    out = s.log_desk(project="overmind", add=["Posizione dei passi"],
+                     before="CHANGELOG")
+    assert out["open_steps"] == ["Misura prima/dopo", "Posizione dei passi",
+                                 "CHANGELOG, /code-review medium",
+                                 "Rilascio 0.17.0"]
+
+
+# ── Taglio del registro in read_desk (piano 2026-10-28) ───────
+
+
+def test_read_desk_trims_log_to_three_by_default_without_touching_disk(s):
+    d = _open(s, objective="Obiettivo intatto.", done_when="criterio intatto",
+              plan=["uno", "due", "tre"])
+    s.log_desk(project="overmind", open_question="domanda aperta")
+    for i in range(1, 9):
+        s.log_desk(project="overmind", note=f"nota numero {i}")
+
+    on_disk = _text(s, d)
+    got = s.read_desk(d["slug"], project="overmind")
+    assert got["log_total"] == 8
+    assert got["log_shown"] == 3
+    assert "nota numero 8" in got["text"]
+    assert "nota numero 6" in got["text"]
+    assert "nota numero 5" not in got["text"]
+    assert "5 voci omesse" in got["text"]
+    assert "full=True" in got["text"]
+    assert "Obiettivo intatto." in got["text"]
+    assert "criterio intatto" in got["text"]
+    assert "- [ ] uno" in got["text"] and "- [ ] tre" in got["text"]
+    assert "- domanda aperta" in got["text"]
+    assert _text(s, d) == on_disk, "il file su disco non si tocca mai"
+
+
+def test_read_desk_full_true_returns_exact_file_from_disk(s):
+    d = _open(s)
+    for i in range(1, 9):
+        s.log_desk(project="overmind", note=f"nota numero {i}")
+
+    on_disk = _text(s, d)
+    got = s.read_desk(d["slug"], project="overmind", full=True)
+    assert got["log_total"] == 8
+    assert got["log_shown"] == 8
+    assert got["text"] == on_disk

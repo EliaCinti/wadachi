@@ -100,6 +100,37 @@ def next_step(text: str) -> str | None:
     return next((label for done, label in parse_plan(text) if not done), None)
 
 
+def open_steps(text: str) -> list[str]:
+    """Le etichette non spuntate, nell'ordine del piano."""
+    return [label for done, label in parse_plan(text) if not done]
+
+
+def resolve_step(text: str, ref: str) -> tuple[str | None, str]:
+    """Il passo aperto che `ref` indica. Restituisce `(etichetta, esito)`.
+
+    `ref` è l'etichetta intera o un suo prefisso: chi aggiunge un passo non
+    deve ricopiare 110 caratteri per dire «prima di F6». L'etichetta intera
+    vince sul prefisso (`F1` non è ambiguo se esiste un passo che si chiama
+    proprio `F1`). `esito` è uno tra `"ok"`, `"ambiguous"` (il prefisso prende
+    più passi aperti), `"done"` (indica solo passi già spuntati) e
+    `"not_found"` — mai un passo scelto a caso."""
+    ref = (ref or "").strip()
+    if not ref:
+        return (None, "not_found")
+    plan = parse_plan(text)
+    opened = [label for done, label in plan if not done]
+    if ref in opened:
+        return (ref, "ok")
+    hits = [label for label in opened if label.startswith(ref)]
+    if len(hits) == 1:
+        return (hits[0], "ok")
+    if hits:
+        return (None, "ambiguous")
+    if any(label == ref or label.startswith(ref) for done, label in plan if done):
+        return (None, "done")
+    return (None, "not_found")
+
+
 def section_text(text: str, heading: str) -> str:
     """Il corpo di una sezione, spogliato agli estremi.
 
@@ -164,6 +195,53 @@ def add_log(text: str, line: str, when: str) -> str:
     return "\n".join(lines)
 
 
+def trim_log(text: str, keep: int | None = 3) -> tuple[str, int, int]:
+    """Riduce `## Registro` alle ultime `keep` voci (che stanno in cima),
+    lasciando intatto tutto il resto — e il file su disco non si tocca.
+
+    Una voce comincia per `- **` (come in `add_log` e `resume-desk.py`);
+    le righe di continuazione restano attaccate alla propria voce. Con
+    `keep=None` restituisce il testo intero e conta solo le voci."""
+    start, end = _section(text, LOG)
+    if start < 0:
+        return (text, 0, 0)
+    lines = text.split("\n")
+    sec = lines[start:end]
+
+    body_end = len(sec)
+    while body_end > 0 and not sec[body_end - 1].strip():
+        body_end -= 1
+    trailing_blanks = len(sec) - body_end
+
+    preamble: list[str] = []
+    entries: list[list[str]] = []
+    for line in sec[:body_end]:
+        if line.startswith("- **"):
+            entries.append([line])
+        elif entries:
+            entries[-1].append(line)
+        else:
+            preamble.append(line)
+
+    total = len(entries)
+    if keep is None or keep < 0 or total <= keep:
+        return (text, total, total)
+
+    omitted = total - keep
+    label = "voce omessa" if omitted == 1 else "voci omesse"
+    note = f"… ({omitted} {label} nel registro — desk_read(full=True) per il file intero)"
+
+    new_sec: list[str] = list(preamble)
+    for entry in entries[:keep]:
+        new_sec.extend(entry)
+    while new_sec and not new_sec[-1].strip():
+        new_sec.pop()
+    new_sec.append(note)
+    new_sec.extend([""] * trailing_blanks)
+
+    return ("\n".join(lines[:start] + new_sec + lines[end:]), total, keep)
+
+
 def add_open(text: str, line: str) -> str:
     """Una riga in fondo alle questioni aperte."""
     start, end = _section(text, OPEN)
@@ -176,18 +254,42 @@ def add_open(text: str, line: str) -> str:
     return "\n".join(lines)
 
 
-def add_steps(text: str, labels: list[str]) -> str:
-    """Passi nuovi in fondo al piano, non spuntati."""
+def add_steps(text: str, labels: list[str], before: str | None = None) -> str:
+    """Passi nuovi, non spuntati: subito prima del passo aperto `before`
+    (etichetta intera, già risolta da `resolve_step`), o in fondo al piano.
+
+    Un `before` che non indica un passo aperto è un errore di chi chiama, non
+    un invito ad accodare: accodare in silenzio è proprio il difetto che
+    `before` esiste per togliere."""
     if not labels:
         return text
     start, end = _section(text, PLAN)
     if start < 0:
+        if before is not None:
+            raise ValueError(f"nessun passo aperto si chiama «{before}»")
         return text.rstrip("\n") + f"\n\n{PLAN}\n" + "\n".join(f"- [ ] {l}" for l in labels) + "\n"
     lines = text.split("\n")
-    while end > start and not lines[end - 1].strip():
-        end -= 1
+    if before is None:
+        while end > start and not lines[end - 1].strip():
+            end -= 1
+        at = end
+    else:
+        at = None
+        in_fence = False
+        for i in range(start, end):
+            if _FENCE.match(lines[i]):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            m = _STEP.match(lines[i])
+            if m and m.group(1) == " " and m.group(2).strip() == before:
+                at = i
+                break
+        if at is None:
+            raise ValueError(f"nessun passo aperto si chiama «{before}»")
     for i, label in enumerate(labels):
-        lines.insert(end + i, f"- [ ] {label}")
+        lines.insert(at + i, f"- [ ] {label}")
     return "\n".join(lines)
 
 

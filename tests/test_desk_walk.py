@@ -57,5 +57,7 @@ def test_the_cap_is_reached_and_said(s):
     assert "sotto i 2 secondi" in ultimo["message"], (
         "il decimo tentativo deve nominare il `Fatto quando`, così chi "
         "chiama verifica il traguardo invece di chiedere un altro passo")
-    got = s.read_desk(d["slug"], project="p")
+    short = s.read_desk(d["slug"], project="p")
+    assert short["log_total"] == 10 and short["log_shown"] == 3
+    got = s.read_desk(d["slug"], project="p", full=True)
     assert got["text"].count("provato") == 10

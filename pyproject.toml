@@ -1,6 +1,6 @@
 [project]
 name = "wadachi"
-version = "0.16.0"
+version = "0.17.0"
 description = "Wadachi (轍) — persistent memory + semantic search MCP server for AI agents. Formerly Engram."
 authors = [{ name = "Elia Cinti", email = "cintielia21@gmail.com" }]
 classifiers = [
@@ -11,6 +11,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 readme = "README.md"
@@ -28,7 +29,10 @@ dependencies = [
 
 [project.optional-dependencies]
 semantic = [
-    "fastembed>=0.4.0",
+    # onnxruntime (dipendenza di fastembed) pubblica wheel solo fino a cp314
+    # e nessun sdist: su Python >=3.15 l'extra degrada a ricerca keyword
+    # invece di far fallire pip/uv in risoluzione.
+    'fastembed>=0.4.0; python_version < "3.15"',
 ]
 graph = [
     "graphifyy>=0.9.0",

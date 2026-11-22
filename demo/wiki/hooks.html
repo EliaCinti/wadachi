@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code hooks — wadachi wiki</title>
+<meta name="description" content="Four optional scripts in scripts/ keep long sessions cheap, resume work cleanly
+after /clear, and back up the brain automatically. None of them requir">
+<link rel="canonical" href="https://wadachi.eliacinti.dev/wiki/hooks.html">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23101012'/%3E%3Cpath d='M5 11.5C5 10.4 5.9 9.6 7 9.7L21 10.6C23.5 10.8 25.5 11.2 27 11.8C25.5 12.3 23.5 12.5 21 12.5L7 13.2C5.9 13.3 5 12.6 5 11.5Z' fill='%23E8E4DC'/%3E%3Cpath d='M5 19.5C5 18.4 5.9 17.6 7 17.7L19.5 18.6C22 18.8 24 19.2 25.5 19.8C24 20.3 22 20.5 19.5 20.5L7 21.2C5.9 21.3 5 20.6 5 19.5Z' fill='%23E8E4DC'/%3E%3Crect x='23' y='23' width='5' height='5' rx='1.4' fill='%23D9442B'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../styles.css?v=10">
+<style>
+  .wk-wrap { max-width: 1280px; margin: 0 auto; padding: 96px clamp(18px,4vw,40px) 60px;
+              display: grid; grid-template-columns: 235px 1fr; gap: clamp(24px,4vw,64px); }
+  .wk-nav { position: sticky; top: 90px; align-self: start; font-size: 13px;
+             max-height: calc(100vh - 120px); overflow-y: auto; padding-right: 6px; }
+  .wk-nav .g { font-family: var(--mono); font-size: 10.5px; letter-spacing: 1.2px;
+             text-transform: uppercase; color: var(--accent); margin: 18px 0 6px; }
+  .wk-nav a { display: block; color: var(--text-dim); padding: 3px 0 3px 10px;
+             border-left: 1.5px solid var(--border); transition: color .15s, border-color .15s; }
+  .wk-nav a:hover { color: var(--text); border-color: var(--accent); }
+  .wk-nav a.on { color: var(--text); border-color: var(--accent); }
+  .wk-main { min-width: 0; }
+  .wk-main h1 { font-size: clamp(32px,3.6vw,46px); margin-bottom: 22px; }
+  .wk-main h2 { font-size: clamp(22px,2.4vw,29px); margin: 44px 0 12px; padding-top: 16px;
+             border-top: 0.5px solid var(--border); }
+  .wk-main h3 { font-size: 17.5px; margin: 26px 0 8px; color: var(--text); }
+  .wk-main p, .wk-main li { font-size: 14.5px; color: var(--text-dim); line-height: 1.75; }
+  .wk-main p { margin-bottom: 13px; max-width: 730px; }
+  .wk-main ul, .wk-main ol { margin: 0 0 15px 20px; max-width: 710px; }
+  .wk-main li { margin-bottom: 6px; }
+  .wk-main strong { color: var(--text); }
+  .wk-main a { color: var(--accent); }
+  .wk-main a:hover { text-decoration: underline; }
+  .wk-main a.wl { color: var(--text); background: rgba(217,68,43,0.09);
+             padding: 1px 7px 2px; border-radius: 6px; white-space: nowrap;
+             transition: background .15s, color .15s; }
+  .wk-main a.wl::before { content: "\203A\00a0"; color: var(--accent); font-weight: 600; }
+  .wk-main a.wl:hover { background: rgba(217,68,43,0.18); color: var(--text);
+             text-decoration: none; }
+  .wk-main pre { position: relative; font-family: var(--mono); font-size: 12.8px;
+             line-height: 1.7; background: #17171B;
+             border: 1px solid var(--border-2); border-radius: 11px;
+             padding: 30px 17px 15px; color: #DDD8CC; overflow-x: auto;
+             margin: 14px 0 18px; max-width: 730px;
+             box-shadow: inset 0 1px 0 rgba(232,228,220,0.04); }
+  .wk-main pre::before { content: "\276F code"; position: absolute; top: 8px; left: 14px;
+             font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+             color: var(--accent); opacity: 0.85; }
+  .wk-main pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  .wk-main table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 14px 0 22px; }
+  .wk-main th, .wk-main td { text-align: left; padding: 9px 12px;
+             border-bottom: 0.5px solid var(--border); vertical-align: top; }
+  .wk-main th { font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+             letter-spacing: 0.6px; color: var(--text-faint); font-weight: 500; }
+  .wk-main td:first-child { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+  .wk-main td { color: var(--text-dim); }
+  .wk-main blockquote { border-left: 2px solid var(--accent); background: rgba(217,68,43,0.05);
+             border-radius: 0 10px 10px 0; padding: 11px 16px; margin: 16px 0 20px;
+             max-width: 710px; }
+  .wk-main blockquote p { margin: 0; font-size: 13.5px; }
+  .wk-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 56px;
+             padding-top: 18px; border-top: 0.5px solid var(--border); font-size: 13.5px; }
+  .wk-foot a { color: var(--text-dim); }
+  .wk-foot a:hover { color: var(--accent); }
+  .tblw { overflow-x: auto; }
+  @media (max-width: 880px) { .wk-wrap { grid-template-columns: 1fr; }
+             .wk-nav { position: static; max-height: none; } }
+</style>
+</head>
+<body>
+<header class="nav">
+  <a class="brand" href="../index.html">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="40 130 470 310" xmlns="http://www.w3.org/2000/svg">
+        <g fill="currentColor">
+          <path d="M 74 184 C 64 166, 76 150, 96 150 C 170 146, 264 158, 344 174 C 394 183, 434 193, 462 205 C 434 211, 394 212, 344 208 C 264 202, 166 200, 96 212 C 80 214, 68 200, 74 184 Z"/>
+          <path d="M 470 203 C 484 201, 494 201, 502 199 C 494 207, 484 209, 470 210 Z"/>
+          <path d="M 74 300 C 64 282, 76 266, 96 266 C 170 262, 260 274, 336 290 C 382 299, 418 309, 444 319 C 418 325, 382 326, 336 322 C 260 316, 166 314, 96 328 C 80 330, 68 316, 74 300 Z"/>
+          <path d="M 452 317 C 466 315, 476 315, 486 313 C 476 321, 466 323, 452 324 Z"/>
+        </g>
+        <rect x="410" y="376" width="56" height="56" rx="10" fill="#D9442B"/>
+      </svg>
+    </span>
+    <span class="brand-name">wadachi</span>
+  </a>
+  <nav class="nav-links">
+    <a href="../index.html">Home</a>
+    <a href="index.html" style="color:var(--text)">Wiki</a>
+    <a class="nav-gh" href="https://github.com/EliaCinti/wadachi" target="_blank" rel="noopener">GitHub ↗</a>
+  </nav>
+</header>
+<div class="wk-wrap">
+<nav class="wk-nav" aria-label="wiki"><div class="g">Start here</div>
+<a href="index.html">Welcome to the wadachi wiki</a>
+<a href="harness.html">The harness — where wadachi sits</a>
+<a href="installation.html">Installation</a>
+<a href="connect.html">Connecting your client</a>
+<a href="hooks.html" class="on">Claude Code hooks</a>
+<div class="g">The brain</div>
+<a href="brain.html">The brain on disk</a>
+<a href="memories.html">Memories</a>
+<a href="projects.html">Projects &amp; scoping</a>
+<a href="decisions.html">Decisions</a>
+<div class="g">Intelligence</div>
+<a href="get-context.html">get_context — start here, every session</a>
+<a href="search.html">Search &amp; retrieval</a>
+<a href="beliefs.html">Beliefs, staleness &amp; decay</a>
+<a href="graph.html">The typed knowledge graph</a>
+<div class="g">Maintenance</div>
+<a href="sleep.html">Sleep — consolidation, proposed</a>
+<a href="consolidation.html">Consolidation, insights &amp; procedures</a>
+<a href="time-travel.html">Provenance &amp; time-travel</a>
+<a href="obsidian-okf.html">LLM Wiki, Obsidian &amp; OKF</a>
+<div class="g">Safety</div>
+<a href="safety.html">Safety — the whole chain</a>
+<div class="g">Reference</div>
+<a href="tools.html">Tool reference — all 37</a>
+<a href="cli.html">CLI reference</a>
+<a href="troubleshooting.html">Troubleshooting</a>
+<a href="faq.html">FAQ — the honest answers</a></nav>
+<main class="wk-main">
+<h1>Claude Code hooks</h1>
+<p>Four optional scripts in <code>scripts/</code> keep long sessions cheap, resume work cleanly
+after <code>/clear</code>, and back up the brain automatically. None of them require extra
+MCP tools — they talk to Claude Code's native hook points and stay silent when
+nothing needs attention.</p>
+<blockquote>
+<p>Hooks do not inherit the MCP server's environment. Pass <code>BRAIN_DIR</code> in the hook
+command; without it, every script stays silent rather than guessing a brain.</p>
+</blockquote>
+<h2>What each script does</h2>
+<div class="tblw"><table>
+<thead>
+<tr>
+<th>script</th>
+<th>hook</th>
+<th>what it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scripts/session-weight.py</code></td>
+<td><code>UserPromptSubmit</code></td>
+<td>Measures the active context from the session transcript and warns the model once per threshold band as the window fills. After a pause longer than the prompt-cache lifetime, <strong>blocks the prompt once</strong> (<code>decision: "block"</code>) before it hits the model, telling you how much the cold cache rewrite would cost (~20 warm turns) and whether the desk was updated on the last turn. Sending again goes through.</td>
+</tr>
+<tr>
+<td><code>scripts/resume-desk.py</code></td>
+<td><code>SessionStart</code> (<code>startup\|clear</code>)</td>
+<td>Injects the project's open desk (objective, stopping condition, next step, last two log entries, open questions — capped around 1.2k tokens) so <code>/clear</code> picks up at the right step with zero tool calls. Outside any registered project (e.g. an editor opened on <code>~</code>), lists the five most recently updated open desks across all projects, with project and calendar age, and asks you which to resume.</td>
+</tr>
+<tr>
+<td><code>scripts/statusline.sh</code></td>
+<td><code>statusLine</code></td>
+<td>Shows context weight (green / yellow / red on the same thresholds), plan quota, and the prompt-cache countdown: <code>cache 42m</code>, then <code>cache fredda</code>.</td>
+</tr>
+<tr>
+<td><code>scripts/backup-brain.sh</code></td>
+<td><code>Stop</code> (<code>async</code>)</td>
+<td>Creates a compressed snapshot of the brain directory, keeping the last 10 archives.</td>
+</tr>
+</tbody>
+</table></div>
+<h2>Why the prompt-cache guard exists</h2>
+<p>Prompt caching keeps your context warm for one hour after the last turn (or five
+minutes outside the plan; the script reads the actual TTL from the transcript's
+<code>usage</code> fields). While warm, rereading context costs 0.1×. After a pause longer
+than the TTL, the very first turn rewrites the entire context into cache at 2× —
+roughly twenty warm turns' worth of tokens in a single message.</p>
+<p>Because the guard runs inside <code>UserPromptSubmit</code> and returns <code>decision: "block"</code>,
+the message never reaches the model and costs <strong>zero tokens</strong>. If your desk is
+already up to date, you can run <code>/clear</code> instead of paying for a cold rewrite;
+<code>resume-desk.py</code> immediately puts the desk back in front of the fresh session.</p>
+<h2>Setup (<code>~/.claude/settings.json</code>)</h2>
+<pre><code class="language-json">{
+  &quot;hooks&quot;: {
+    &quot;UserPromptSubmit&quot;: [{
+      &quot;hooks&quot;: [{
+        &quot;type&quot;: &quot;command&quot;,
+        &quot;timeout&quot;: 10,
+        &quot;command&quot;: &quot;BRAIN_DIR=/path/to/brain /path/to/wadachi/venv/bin/python /path/to/wadachi/scripts/session-weight.py&quot;
+      }]
+    }],
+    &quot;SessionStart&quot;: [{
+      &quot;matcher&quot;: &quot;startup|clear&quot;,
+      &quot;hooks&quot;: [{
+        &quot;type&quot;: &quot;command&quot;,
+        &quot;timeout&quot;: 10,
+        &quot;command&quot;: &quot;BRAIN_DIR=/path/to/brain /path/to/wadachi/venv/bin/python /path/to/wadachi/scripts/resume-desk.py&quot;
+      }]
+    }]
+  },
+  &quot;statusLine&quot;: {
+    &quot;type&quot;: &quot;command&quot;,
+    &quot;command&quot;: &quot;/path/to/wadachi/scripts/statusline.sh&quot;
+  }
+}
+</code></pre>
+<h2>Environment variables (all optional)</h2>
+<div class="tblw"><table>
+<thead>
+<tr>
+<th>variable</th>
+<th>default</th>
+<th>effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WADACHI_CACHE_GUARD</code></td>
+<td>on</td>
+<td>Set to <code>off</code> to disable the cold-cache block</td>
+</tr>
+<tr>
+<td><code>WADACHI_GUARD_MIN</code></td>
+<td><code>40000</code></td>
+<td>Minimum context tokens before the cache guard triggers</td>
+</tr>
+<tr>
+<td><code>WADACHI_CACHE_TTL</code></td>
+<td>read from transcript</td>
+<td>Override the cache lifetime in seconds</td>
+</tr>
+<tr>
+<td><code>WADACHI_WEIGHT_NOTICE</code></td>
+<td><code>50</code></td>
+<td>Context % for the first soft reminder</td>
+</tr>
+<tr>
+<td><code>WADACHI_WEIGHT_WARN</code></td>
+<td><code>75</code></td>
+<td>Context % for the stronger warning</td>
+</tr>
+<tr>
+<td><code>WADACHI_WEIGHT_URGE</code></td>
+<td><code>90</code></td>
+<td>Context % to strongly advise distilling and restarting</td>
+</tr>
+</tbody>
+</table></div>
+<p>See also: <a class="wl" href="harness.html">The harness — where wadachi sits</a>, <a class="wl" href="get-context.html">get_context — start here, every session</a>, <a class="wl" href="tools.html">Tool reference — all 37</a>.</p>
+<div class="wk-foot"><a href="connect.html">← Connecting your client</a><a href="brain.html">The brain on disk →</a></div>
+</main>
+</div>
+<footer class="footer">
+  <p class="footer-note">wadachi 轍 wiki — a wiki about an LLM Wiki, built as one:
+     markdown + wikilinks, compiled to HTML.
+     <a href="https://github.com/EliaCinti/wadachi/tree/main/demo/wiki-src">source</a></p>
+  <div class="footer-kanji" aria-hidden="true">轍</div>
+</footer>
+</body>
+</html>

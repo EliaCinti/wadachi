@@ -3,8 +3,9 @@
 import pytest
 
 from wadachi.desk import (add_log, add_open, add_steps, desk_slug, done_when,
-                          next_step, parse_plan, render_desk, section_text,
-                          set_meta, tick_step)
+                          next_step, open_steps, parse_plan, render_desk,
+                          resolve_step, section_text, set_meta, tick_step,
+                          trim_log)
 
 DESK = """---
 type: desk
@@ -112,6 +113,60 @@ def test_new_steps_are_appended_unticked():
     assert next_step(out) == "secondo"
 
 
+def test_open_steps_are_the_unticked_labels_in_order():
+    assert open_steps(DESK) == ["secondo", "quarto"]
+
+
+def test_new_steps_go_before_the_step_named_in_before():
+    out = add_steps(DESK, ["terzo bis"], before="quarto")
+    assert open_steps(out) == ["secondo", "terzo bis", "quarto"]
+
+
+def test_two_additions_before_the_same_step_keep_their_order():
+    """Per questo è `before` e non `after`: con `after` la seconda aggiunta
+    scavalcherebbe la prima."""
+    out = add_steps(DESK, ["a"], before="quarto")
+    out = add_steps(out, ["b"], before="quarto")
+    assert open_steps(out) == ["secondo", "a", "b", "quarto"]
+
+
+def test_before_ignores_a_checkbox_inside_a_code_fence():
+    trap = DESK.replace(
+        "- [ ] secondo",
+        "- [ ] secondo\n```\n- [ ] quarto\n```",
+    )
+    out = add_steps(trap, ["nuovo"], before="quarto")
+    assert open_steps(out) == ["secondo", "nuovo", "quarto"]
+    assert "```\n- [ ] quarto\n```" in out, "il fence resta com'era"
+
+
+def test_resolve_step_takes_the_whole_label():
+    assert resolve_step(DESK, "quarto") == ("quarto", "ok")
+
+
+def test_resolve_step_takes_a_unique_prefix_of_an_open_step():
+    assert resolve_step(DESK, "quar") == ("quarto", "ok")
+
+
+def test_resolve_step_says_when_a_prefix_is_ambiguous():
+    plan = DESK.replace("- [ ] quarto", "- [ ] F10. collaudo\n- [ ] F11. review")
+    assert resolve_step(plan, "F1") == (None, "ambiguous")
+
+
+def test_resolve_step_prefers_the_whole_label_to_a_prefix():
+    plan = DESK.replace("- [ ] quarto", "- [ ] F1\n- [ ] F10. collaudo")
+    assert resolve_step(plan, "F1") == ("F1", "ok")
+
+
+def test_resolve_step_says_when_the_step_is_already_ticked():
+    assert resolve_step(DESK, "primo") == (None, "done")
+
+
+def test_resolve_step_says_when_nothing_matches():
+    assert resolve_step(DESK, "non esiste") == (None, "not_found")
+    assert resolve_step(DESK, "   ") == (None, "not_found")
+
+
 def test_a_title_that_slugifies_to_nothing_is_refused():
     with pytest.raises(ValueError):
         desk_slug("   ", taken=set())
@@ -191,3 +246,64 @@ def test_set_meta_inserts_regex_special_characters_literally():
     value = r"a.b*c\1d\g<0>"
     out = set_meta(DESK, "slug", value)
     assert f"slug: {value}" in out
+
+
+# ── Taglio del registro (piano 2026-10-28-risposte-che-costano-meno) ──
+
+
+def _desk_with_logs(n: int) -> str:
+    text = DESK.replace("- **20:00** — nota vecchia\n", "")
+    for i in range(1, n + 1):
+        text = add_log(text, f"voce numero {i}", when=f"10:{i:02d}")
+    return text
+
+
+def test_trim_log_keeps_last_three_entries_and_adds_omission_line():
+    raw = _desk_with_logs(8)
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 8 and shown == 3
+    for i in (8, 7, 6):
+        assert f"voce numero {i}" in trimmed
+    for i in (5, 4, 3, 2, 1):
+        assert f"voce numero {i}" not in trimmed
+    assert "5 voci omesse" in trimmed
+    assert "full=True" in trimmed
+    # Tutte le altre sezioni restano intatte
+    assert "## Obiettivo\nFare la cosa.\n**Fatto quando:** i test passano." in trimmed
+    assert "## Piano\n- [x] primo\n- [ ] secondo\n- [x] terzo fuori ordine\n- [ ] quarto" in trimmed
+    assert "## Aperto\n- una domanda" in trimmed
+
+
+def test_trim_log_leaves_three_or_fewer_entries_untouched():
+    for n in (0, 1, 3):
+        raw = _desk_with_logs(n)
+        trimmed, total, shown = trim_log(raw, keep=3)
+        assert total == n and shown == n
+        assert trimmed == raw
+
+
+def test_trim_log_uses_singular_when_one_entry_is_omitted():
+    raw = _desk_with_logs(4)
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 4 and shown == 3
+    assert "1 voce omessa" in trimmed
+    assert "voce numero 1" not in trimmed
+
+
+def test_trim_log_with_keep_none_returns_full_text_and_counts():
+    raw = _desk_with_logs(8)
+    out, total, shown = trim_log(raw, keep=None)
+    assert out == raw
+    assert total == 8 and shown == 8
+
+
+def test_trim_log_keeps_multiline_entries_together():
+    raw = _desk_with_logs(4).replace(
+        "voce numero 2", "voce numero 2\n  dettaglio seconda riga",
+    ).replace(
+        "voce numero 1", "voce numero 1\n  dettaglio da omettere",
+    )
+    trimmed, total, shown = trim_log(raw, keep=3)
+    assert total == 4 and shown == 3
+    assert "dettaglio seconda riga" in trimmed
+    assert "dettaglio da omettere" not in trimmed

@@ -95,6 +95,7 @@
 <a href="harness.html">The harness — where wadachi sits</a>
 <a href="installation.html" class="on">Installation</a>
 <a href="connect.html">Connecting your client</a>
+<a href="hooks.html">Claude Code hooks</a>
 <div class="g">The brain</div>
 <a href="brain.html">The brain on disk</a>
 <a href="memories.html">Memories</a>
@@ -128,6 +129,17 @@
 # or
 uv tool install &quot;wadachi[semantic]&quot;
 </code></pre>
+<blockquote>
+<p><strong>Python 3.15 note:</strong> <code>onnxruntime</code> (used by <code>fastembed</code>) currently publishes
+prebuilt wheels up to Python 3.14 only. On Python 3.15, <code>wadachi[semantic]</code>
+installs cleanly and falls back to keyword search instead of failing. To get
+local semantic search right away on a machine whose default Python is 3.15,
+pin Python 3.14 for the tool:</p>
+<p>```bash
+uv tool install --python 3.14 "wadachi[semantic]"</p>
+<h1>or: pipx install --python python3.14 "wadachi[semantic]"</h1>
+<p>```</p>
+</blockquote>
 <h2>Minimal install</h2>
 <p>No ML dependencies at all. Search falls back to keyword matching — everything else
 works identically:</p>

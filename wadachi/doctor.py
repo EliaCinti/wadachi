@@ -193,8 +193,15 @@ def run_doctor(brain_dir: str | Path, fix: bool = False, check_mcp: bool = True)
         import fastembed  # noqa: F401
         r.ok("fastembed installato (ricerca semantica)")
     except ImportError:
-        r.warn("fastembed non installato — ricerca solo keyword "
-               "(pip install 'wadachi[semantic]')")
+        if sys.version_info >= (3, 15):
+            r.warn(
+                "fastembed non disponibile su Python 3.15 (onnxruntime non pubblica "
+                "ancora wheel cp315) — ricerca keyword attiva; per la ricerca semantica: "
+                "uv tool install --python 3.14 'wadachi[semantic]'"
+            )
+        else:
+            r.warn("fastembed non installato — ricerca solo keyword "
+                   "(pip install 'wadachi[semantic]')")
 
     # ── integrazione MCP ──────────────────────────────────────
     if check_mcp:

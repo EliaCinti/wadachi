@@ -45,8 +45,8 @@ description of any of the 37. Args in *italics* are optional.
 | tool | args | does |
 |---|---|---|
 | desk | action, *title, objective, done_when, plan, slug, outcome, distil, cwd, project* | open, close, or list a desk — the plan and progress for a task in flight |
-| desk_read | *slug, cwd, project* | pick a desk's thread back up: plan, next step, what was already tried |
-| desk_log | *slug, done, note, open_question, add, cwd, project* | tick the step that landed, note what failed, get the next step back |
+| desk_read | *slug, full, cwd, project* | pick a desk's thread back up: plan, next step, and last 3 log entries (`full=True` for the entire file) |
+| desk_log | *slug, done, note, open_question, add, before, at_end, cwd, project* | tick the step that landed, note what failed, add steps with explicit position (`before`/`at_end`), get the next step back |
 
 ## Graph
 

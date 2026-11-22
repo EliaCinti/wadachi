@@ -356,7 +356,7 @@
 
 <!-- ── STATS STRIP ───────────────────────────────────────── -->
 <section class="strip">
-  <div class="strip-item"><span class="strip-num">31</span><span class="strip-lbl">MCP tools</span></div>
+  <div class="strip-item"><span class="strip-num">37</span><span class="strip-lbl">MCP tools</span></div>
   <div class="strip-item"><span class="strip-num">$0</span><span class="strip-lbl">API cost · runs local</span></div>
   <div class="strip-item"><span class="strip-num">md + SQLite</span><span class="strip-lbl">human-readable store</span></div>
   <div class="strip-item"><span class="strip-num">MIT</span><span class="strip-lbl">open source</span></div>
@@ -367,8 +367,9 @@
   <div class="cta-box">
     <h2>Give your AI a <span class="hl">memory</span>.</h2>
     <p>Three commands, and you never re-explain your codebase again.</p>
-    <pre class="code wide"><code># install (semantic search included, runs locally)
+    <pre class="code wide"><code># install (semantic search included, runs locally; on Python 3.15 pin 3.14)
 pipx install "wadachi[semantic]"
+# or: uv tool install --python 3.14 "wadachi[semantic]"
 
 # guided setup: brain dir, database, Claude Code registration
 wadachi init

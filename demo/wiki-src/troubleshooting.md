@@ -23,6 +23,7 @@ mysteriously — wadachi's logging is stderr + file only, by hard rule).
 |---|---|
 | client shows wadachi as disconnected | wrong command path or BRAIN_DIR → `claude mcp list`, re-run `wadachi init` |
 | "search feels dumb" | keyword mode → install `wadachi[semantic]`; check `brain_status` |
+| Python 3.15 runs in keyword mode | `onnxruntime` has no `cp315` wheels yet → pin 3.14: `uv tool install --python 3.14 "wadachi[semantic]"` |
 | recall_associative returns an error | no fastembed → expected; it includes keyword fallback results |
 | doctor: "schema vN, available vM" | pending migrations → next server start or `wadachi init` applies them (with backup) |
 | doctor: files with non-canonical frontmatter | hand edits → `wadachi doctor --fix` (prose untouched) |

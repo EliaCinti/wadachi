@@ -14,6 +14,17 @@ pipx install "wadachi[semantic]"
 uv tool install "wadachi[semantic]"
 ```
 
+> **Python 3.15 note:** `onnxruntime` (used by `fastembed`) currently publishes
+> prebuilt wheels up to Python 3.14 only. On Python 3.15, `wadachi[semantic]`
+> installs cleanly and falls back to keyword search instead of failing. To get
+> local semantic search right away on a machine whose default Python is 3.15,
+> pin Python 3.14 for the tool:
+>
+> ```bash
+> uv tool install --python 3.14 "wadachi[semantic]"
+> # or: pipx install --python python3.14 "wadachi[semantic]"
+> ```
+
 ## Minimal install
 
 No ML dependencies at all. Search falls back to keyword matching — everything else

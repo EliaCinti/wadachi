@@ -120,6 +120,8 @@ wadachi init
 # 3 · restart Claude Code — every session now starts with get_context
 ```
 
+> **Python 3.15:** `onnxruntime` (required by `fastembed`) currently publishes wheels up to Python 3.14 only. On Python 3.15, `wadachi[semantic]` installs cleanly in keyword mode; for local semantic search right away, pin Python 3.14: `uv tool install --python 3.14 "wadachi[semantic]"`.
+
 `wadachi init` creates the brain directory (default `~/.wadachi`), brings the
 database to the latest schema, and registers the MCP server in Claude Code and
 Antigravity automatically. It is idempotent — safe to re-run anytime.
@@ -220,7 +222,7 @@ silent rather than guess a brain.
 
 Tuning, all optional: `WADACHI_CACHE_GUARD=off`, `WADACHI_GUARD_MIN` (default
 40000 tokens), `WADACHI_CACHE_TTL` (seconds; read from the transcript otherwise),
-`WADACHI_WEIGHT_NOTICE/WARN/URGE` (50/75/90 %).
+`WADACHI_WEIGHT_NOTICE/WARN/URGE` (50/75/90 %). Full guide: **[Claude Code hooks](https://wadachi.eliacinti.dev/wiki/hooks.html)**.
 
 ---
 
@@ -410,22 +412,20 @@ Semantic search runs entirely on your machine — no API calls, no cloud, no cos
 
 ## Recently shipped
 
-- [x] **Constellation** — graph-aware associative recall (citation + semantic + entity edges, HippoRAG-style spreading activation)
-- [x] **Graphify entity graph** — entity/relation extraction over the brain via the local `claude` CLI ($0)
-- [x] **Belief revision** — stale / superseded / temporal flagging, annotated in recall, non-destructive
-- [x] **Reflection & insights** — cross-memory analogies proposed for accept/reject
-- [x] **Procedural memory** — recurring-incident clustering into candidate rules
-- [x] **Non-destructive memory history** — every update preserves prior versions
+- [x] **Lighter MCP responses & positioned desk steps (`0.17.0`)** — `desk_read` trims log history to the last 3 entries by default (`full=True` for the whole file), UTF-8 JSON without ASCII escapes, single-level wire output (`structured_output=False`), explicit step placement in `desk_log(before=/at_end=)`, and graceful keyword fallback on Python 3.15
+- [x] **Session weight, prompt-cache guard & auto-resume hooks (`0.17.0`)** — `session-weight.py`, `resume-desk.py` (in-project and outside-project), and `statusline.sh` — see [Claude Code hooks](https://wadachi.eliacinti.dev/wiki/hooks.html)
+- [x] **The Desk & toolset menu (`0.16.0`)** — durable working state across context windows (`desk`, `desk_read`, `desk_log`) and a focused 26-tool default menu (`WADACHI_TOOLSETS`)
+- [x] **Constellation & Graphify entity graph** — graph-aware associative recall (citation + semantic + entity edges, HippoRAG-style PPR) and $0 entity extraction via the local `claude` CLI
+- [x] **Belief revision, reflection, procedural memory & time travel** — stale/superseded flagging, cross-memory insights, incident clustering, non-destructive version history (`memory_history`, `why`, `as_of`)
 - [x] **Web graph visualizer** — interactive constellation view, live at [wadachi.eliacinti.dev](https://wadachi.eliacinti.dev)
 
-## Roadmap
+## Roadmap toward `1.0.0`
 
-- [ ] Auto-summarize old memories to reduce token usage
-- [ ] Memory importance decay (surface recent and frequently-accessed memories first)
-- [x] Claude Code hooks for automatic context injection + brain backup on session stop — see [Claude Code hooks](#claude-code-hooks-optional)
-- [ ] Export/sync with Notion
-- [ ] Conversation history indexing
-- [ ] Multi-language embedding model for better Italian support
+- [ ] **`0.18.0` — Reliability & brain hygiene:** `SessionEnd` backups with consistent SQLite `.backup`, `desks/` included, and 14-day retention; directional `updates` / `cites` link parsing + `[[N]]` support; DB schema v4 (deleted memory versions kept in `memory_versions`, separate `seen_count`, tighter `temporal` signal); `FASTEMBED_CACHE_PATH` support; `wadachi doctor --adopt`; remove legacy `engram` alias
+- [ ] **`0.19.0` — Better non-English / Italian recall:** ~50-probe offline benchmark, `bge` query-prefix evaluation (`embed_query`), summary-first memory conventions, and data-backed ADR on default embedding model
+- [ ] **`0.20.0` — Multi-Brain:** single MCP server routing across isolated brains via `~/.config/wadachi/brains.toml` (auto-routed by directory), `wadachi brain list|create|use`, and optional read-only cross-brain search
+- [ ] **`mcp` 2.x port:** upgrade from `mcp<2` once `mcp` 2.x stabilizes
+- [ ] **`1.0.0` — Production / Stable:** frozen MCP tool contracts, CLI commands, and vault/export format with SemVer backward-compatibility guarantees across `1.x`
 
 ---
 

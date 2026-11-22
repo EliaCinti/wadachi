@@ -5,6 +5,48 @@ Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-11-22
+
+### Changed — risposte più leggere: `desk_read` corto, UTF-8 vero, niente doppio JSON
+
+**Due sprechi gonfiavano ogni ripresa di lavoro.** `desk_read` restituiva l'intero
+registro della scrivania (anche 20 KB di vecchi tentativi), e FastMCP avvolgeva
+ogni stringa JSON in `{"result": "<stringa escaped>"}` mentre `json.dumps`
+emetteva escape ASCII (`\u00e8`, `\u00ab`) su tutto il testo italiano.
+
+- **`desk_read(full=False)`** taglia `## Registro` alle **ultime 3 voci**
+  (lasciando intatti obiettivo, «fatto quando», piano, «Aperto» e il file su
+  disco) e aggiunge una riga con il conteggio delle voci omesse; `full=True`
+  restituisce il file intero. `read_desk` espone anche `log_total` e `log_shown`.
+- **UTF-8 leggibile:** tutte le risposte JSON di `server.py` passano da
+  `_dumps()` con `ensure_ascii=False` — niente più `\u00..` sul filo MCP.
+- **Un solo livello sul filo:** il decoratore `tool()` imposta
+  `structured_output=False`, eliminando l'involucro `{"result": …}` e il doppio
+  escaping di FastMCP.
+- **Manuale della scrivania:** `manual()` documenta le tre regole operative
+  (niente passo-ombrello, posizione esplicita con `before=`/`at_end`, non-passi
+  in `open_question`).
+
+### Changed — `desk_log` chiede dove va un passo nuovo
+
+**Accodare in silenzio metteva i passi nuovi dietro la review o i passi rimandati.**
+Quando `## Piano` ha ancora passi aperti, `desk_log(add=[…])` richiede ora una
+posizione esplicita — `before="<etichetta o prefisso univoco>"` oppure
+`at_end=True`. Senza posizione (o con `before` sconosciuto, ambiguo o già
+spuntato) la chiamata è rifiutata per intero senza scritture a metà e restituisce
+`open_steps` nell'ordine corrente. Su un piano finito o vuoto accoda come prima.
+
+### Fixed — installazione su Python 3.15 (`onnxruntime` senza wheel `cp315`)
+
+`fastembed` dipende da `onnxruntime`, che su PyPI pubblica wheel binarie fino a
+Python 3.14 e nessun sdist: installare `wadachi[semantic]` su Python 3.15
+falliva in risoluzione. L'extra `semantic` usa ora il marker
+`python_version < "3.15"`, degradando pulitamente a ricerca keyword su Python
+3.15 invece di rompere l'installazione; `wadachi doctor`, `wadachi init` e
+`brain_status` avvisano in chiaro e indicano
+`uv tool install --python 3.14 "wadachi[semantic]"` per avere subito la ricerca
+semantica.
+
 ### Added — il peso della sessione
 
 **Una chat lunga si ripaga a ogni turno, e nessuno lo diceva.** Il contesto

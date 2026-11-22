@@ -96,6 +96,7 @@ memory file, the wiki files, the search mode and the MCP registration ">
 <a href="harness.html">The harness — where wadachi sits</a>
 <a href="installation.html">Installation</a>
 <a href="connect.html">Connecting your client</a>
+<a href="hooks.html">Claude Code hooks</a>
 <div class="g">The brain</div>
 <a href="brain.html">The brain on disk</a>
 <a href="memories.html">Memories</a>
@@ -147,6 +148,10 @@ mysteriously — wadachi's logging is stderr + file only, by hard rule).</p>
 <tr>
 <td>"search feels dumb"</td>
 <td>keyword mode → install <code>wadachi[semantic]</code>; check <code>brain_status</code></td>
+</tr>
+<tr>
+<td>Python 3.15 runs in keyword mode</td>
+<td><code>onnxruntime</code> has no <code>cp315</code> wheels yet → pin 3.14: <code>uv tool install --python 3.14 "wadachi[semantic]"</code></td>
 </tr>
 <tr>
 <td>recall_associative returns an error</td>

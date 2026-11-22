@@ -97,6 +97,7 @@ b">
 <a href="harness.html">The harness — where wadachi sits</a>
 <a href="installation.html">Installation</a>
 <a href="connect.html">Connecting your client</a>
+<a href="hooks.html">Claude Code hooks</a>
 <div class="g">The brain</div>
 <a href="brain.html">The brain on disk</a>
 <a href="memories.html">Memories</a>
@@ -266,13 +267,13 @@ description of any of the 37. Args in <em>italics</em> are optional.</p>
 </tr>
 <tr>
 <td>desk_read</td>
-<td><em>slug, cwd, project</em></td>
-<td>pick a desk's thread back up: plan, next step, what was already tried</td>
+<td><em>slug, full, cwd, project</em></td>
+<td>pick a desk's thread back up: plan, next step, and last 3 log entries (<code>full=True</code> for the entire file)</td>
 </tr>
 <tr>
 <td>desk_log</td>
-<td><em>slug, done, note, open_question, add, cwd, project</em></td>
-<td>tick the step that landed, note what failed, get the next step back</td>
+<td><em>slug, done, note, open_question, add, before, at_end, cwd, project</em></td>
+<td>tick the step that landed, note what failed, add steps with explicit position (<code>before</code>/<code>at_end</code>), get the next step back</td>
 </tr>
 </tbody>
 </table></div>

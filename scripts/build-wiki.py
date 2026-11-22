@@ -29,6 +29,7 @@ MANIFEST = [
     ("harness",         "Start here"),
     ("installation",    "Start here"),
     ("connect",         "Start here"),
+    ("hooks",           "Start here"),
     ("brain",           "The brain"),
     ("memories",        "The brain"),
     ("projects",        "The brain"),

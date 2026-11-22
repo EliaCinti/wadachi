@@ -118,6 +118,15 @@ def cmd_init(args: argparse.Namespace) -> int:
     MemoryStore(str(brain)).rebuild_index()
     _ok("index.md rigenerato (catalogo del wiki)")
 
+    # 2c · nota ricerca su Python 3.15 se fastembed non è presente
+    try:
+        import fastembed  # noqa: F401
+    except ImportError:
+        if sys.version_info >= (3, 15):
+            print("  ⚠ ricerca semantica non disponibile su Python 3.15 "
+                  "(onnxruntime senza wheel cp315): attiva la ricerca keyword.")
+            print("    Per averla subito: uv tool install --python 3.14 \"wadachi[semantic]\"")
+
     # 3 · registrazione in Claude Code (se il CLI `claude` è disponibile)
     if args.no_claude:
         _skip("Claude Code: saltato (--no-claude)")

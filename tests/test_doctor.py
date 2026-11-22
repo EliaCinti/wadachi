@@ -108,3 +108,39 @@ def test_doctor_reports_pending_migrations(tmp_path, capsys):
     run_doctor(brain, check_mcp=False)
     out = capsys.readouterr().out
     assert "schema v0" in out and "migrazioni" in out
+
+
+def test_doctor_warns_specifically_on_python_315_without_fastembed(tmp_path, capsys, monkeypatch):
+    """Su Python 3.15 onnxruntime non ha ancora wheel cp315: doctor deve dirlo
+    in chiaro con il comando funzionante invece del generico pip install."""
+    import builtins
+    import sys
+
+    s = _healthy_brain(tmp_path)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "fastembed":
+            raise ImportError("no fastembed on 3.15")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(sys, "version_info", (3, 15, 0, "final", 0))
+
+    code = run_doctor(s.brain_dir, check_mcp=False)
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "3.15" in out
+    assert "onnxruntime" in out
+    assert "--python 3.14" in out
+
+
+def test_pyproject_semantic_extra_gates_fastembed_below_315():
+    """L'extra `semantic` non deve far fallire pip/uv su Python 3.15 finché
+    onnxruntime non pubblica wheel cp315."""
+    import tomllib
+    from pathlib import Path
+
+    data = tomllib.loads((Path(__file__).resolve().parent.parent / "pyproject.toml").read_text())
+    semantic = data["project"]["optional-dependencies"]["semantic"]
+    assert any("fastembed" in dep and 'python_version < "3.15"' in dep for dep in semantic), semantic

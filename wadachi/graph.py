@@ -112,9 +112,9 @@ class MemoryGraph:
             emb = None
             if r["embedding"] is not None:
                 emb = np.frombuffer(r["embedding"], dtype=np.float32)
-            from pathlib import Path as _P
+            from pathlib import PurePosixPath as _P
             node = Node(r["id"], r["title"], r["category"], r["tags"], r["content"], emb,
-                        stem=_P(r.get("filepath", "")).stem)
+                        stem=_P((r.get("filepath") or "").replace("\\", "/")).stem)
             self.nodes[r["id"]] = node
             if emb is None:
                 missing_ids.append(r["id"])
@@ -250,7 +250,7 @@ class MemoryGraph:
 
         with self.store._conn() as conn:
             rows = conn.execute("SELECT id, filepath FROM memories").fetchall()
-        flat_to_id = {r["filepath"].replace("/", "__"): r["id"] for r in rows}
+        flat_to_id = {r["filepath"].replace("\\", "/").replace("/", "__"): r["id"] for r in rows}
 
         def mem_id(gnode: dict) -> int | None:
             return flat_to_id.get(gnode.get("source_file") or "")

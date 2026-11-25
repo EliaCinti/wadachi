@@ -120,14 +120,17 @@ def run_doctor(brain_dir: str | Path, fix: bool = False, check_mcp: bool = True)
     if conn is not None and "memories" in counts:
         rows = conn.execute("SELECT id, title, project, tags, category, filepath, "
                             "created_at, updated_at FROM memories").fetchall()
-        missing, malformed, fixed = [], [], 0
+        missing, malformed, win_paths, fixed = [], [], [], 0
         referenced = set()
         for row in rows:
             (mid, title, project, tags, category, fp, created, updated) = row
-            path = brain / fp
+            norm_fp = (fp or "").replace("\\", "/")
+            if "\\" in (fp or ""):
+                win_paths.append((mid, fp, norm_fp))
+            path = brain / norm_fp
             referenced.add(path.resolve())
             if not path.exists():
-                missing.append((mid, fp))
+                missing.append((mid, norm_fp))
                 continue
             parsed = parse_memory_file(path.read_text(encoding="utf-8"))
             # "riparabile" = rotto, senza frontmatter, o non OKF-conforme (manca `type`)
@@ -139,7 +142,19 @@ def run_doctor(brain_dir: str | Path, fix: bool = False, check_mcp: bool = True)
                     backfill_file(path, db_meta)
                     fixed += 1
                 else:
-                    malformed.append((mid, fp))
+                    malformed.append((mid, norm_fp))
+
+        if win_paths:
+            if fix:
+                with sqlite3.connect(db) as rw:
+                    for mid, _old, norm_fp in win_paths:
+                        rw.execute("UPDATE memories SET filepath = ? WHERE id = ?",
+                                   (norm_fp, mid))
+                    rw.commit()
+                r.ok(f"{len(win_paths)} percorsi Windows (backslash) normalizzati in POSIX (`/`) nel DB (--fix)")
+            else:
+                r.warn(f"{len(win_paths)} percorsi Windows (backslash) nel DB "
+                       f"(riparabile con --fix): " + ", ".join(f"#{m}" for m, _, _ in win_paths[:8]))
 
         if missing:
             r.fail(f"{len(missing)} file referenziati dal DB ma assenti su disco: "

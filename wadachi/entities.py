@@ -67,9 +67,10 @@ class EntityGraph:
         with self.store._conn() as conn:
             rows = conn.execute("SELECT filepath FROM memories").fetchall()
         for r in rows:
-            src = Path(self.store.brain_dir) / r["filepath"]
+            rel = r["filepath"].replace("\\", "/")
+            src = Path(self.store.brain_dir) / rel
             if src.exists():
-                dst = self.corpus_dir / r["filepath"].replace("/", "__")
+                dst = self.corpus_dir / rel.replace("/", "__")
                 dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
                 n += 1
         return n

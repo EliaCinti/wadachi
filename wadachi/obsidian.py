@@ -40,15 +40,16 @@ def run_backfill(brain_dir: str | Path, dry_run: bool = False) -> dict:
     store = MemoryStore(str(brain_dir))
     brain = Path(store.brain_dir)
 
+    from pathlib import PurePosixPath
     rows = store.list_memories()
-    stem_of = {m["id"]: Path(m["filepath"]).stem for m in rows}
+    stem_of = {m["id"]: PurePosixPath(m["filepath"].replace("\\", "/")).stem for m in rows}
 
     stats = {"scanned": 0, "updated": 0, "links": 0, "unresolved": 0}
     now = datetime.now(timezone.utc).isoformat()
     conn = sqlite3.connect(store.db_path)
 
     for m in rows:
-        path = brain / m["filepath"]
+        path = brain / m["filepath"].replace("\\", "/")
         if not path.exists():
             continue
         stats["scanned"] += 1

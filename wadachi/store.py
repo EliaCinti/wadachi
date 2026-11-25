@@ -20,8 +20,18 @@ import os
 import re
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Iterator, Optional
+
+
+def _posix_rel(rel: str) -> str:
+    """Normalizza un percorso relativo dal DB al formato POSIX (`/`).
+
+    I brain creati su Windows prima della 0.17.1 potevano contenere `\\` in
+    `memories.filepath`: normalizzare in lettura garantisce portabilità
+    immediata fra Windows, macOS e Linux.
+    """
+    return (rel or "").replace("\\", "/")
 
 
 def _slugify(text: str) -> str:
@@ -195,7 +205,7 @@ class MemoryStore:
         # it: an orphan .md is invisible to `list_memories` while sitting in
         # the vault, which is a worse outcome than a clean failure. (Eight
         # concurrent processes used to leave 40 files against 37 rows.)
-        rel_path = str(filepath.relative_to(self.brain_dir))
+        rel_path = filepath.relative_to(self.brain_dir).as_posix()
         try:
             with self._write() as conn:
                 cursor = conn.execute(
@@ -226,7 +236,7 @@ class MemoryStore:
         if not row:
             return None
 
-        filepath = self.brain_dir / row["filepath"]
+        filepath = self.brain_dir / _posix_rel(row["filepath"])
         if filepath.exists():
             # parser tollerante: file editati a mano o con frontmatter rotto
             # non fanno mai fallire la lettura (vedi wadachi/mdio.py)
@@ -282,7 +292,7 @@ class MemoryStore:
             row = conn.execute("SELECT filepath FROM memories WHERE id = ?", (memory_id,)).fetchone()
             if not row:
                 return False
-            filepath = self.brain_dir / row["filepath"]
+            filepath = self.brain_dir / _posix_rel(row["filepath"])
             if filepath.exists():
                 filepath.unlink()
             conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
@@ -300,7 +310,7 @@ class MemoryStore:
             now = datetime.now(timezone.utc).isoformat()
 
             if content is not None:
-                filepath = self.brain_dir / row["filepath"]
+                filepath = self.brain_dir / _posix_rel(row["filepath"])
                 # Non-destructive: snapshot the previous version before overwriting.
                 if filepath.exists():
                     conn.execute(
@@ -666,7 +676,7 @@ class MemoryStore:
         from wadachi.mdio import parse_memory_file
         results = []
         for r in rows:
-            filepath = self.brain_dir / r["filepath"]
+            filepath = self.brain_dir / _posix_rel(r["filepath"])
             content = ""
             if filepath.exists():
                 content = parse_memory_file(filepath.read_text(encoding="utf-8")).content
@@ -864,7 +874,7 @@ class MemoryStore:
                 if r["project"] != current:
                     current = r["project"]
                     lines += [f"## {current}", ""]
-                stem = Path(r["filepath"]).stem
+                stem = PurePosixPath(_posix_rel(r["filepath"])).stem
                 lines.append(f"- [[{stem}]] — {r['title']} `{r['category']}`")
             lines.append("")
             _atomic_write_text(self.brain_dir / "index.md", "\n".join(lines))
@@ -968,7 +978,7 @@ class MemoryStore:
                     return {"ambiguous": True, "desks": open_ones}
                 return None
         try:
-            raw = (self.brain_dir / row["filepath"]).read_text(encoding="utf-8")
+            raw = (self.brain_dir / _posix_rel(row["filepath"])).read_text(encoding="utf-8")
         except FileNotFoundError:
             return self._forget_missing_desk(row["slug"], row["project"])
         text, log_total, log_shown = D.trim_log(raw, keep=None if full else 3)
@@ -1010,7 +1020,7 @@ class MemoryStore:
             if row is None:
                 return {"error": "nessuna scrivania — dammi lo slug",
                         "desks": self.list_desks(project=project)}
-            path = self.brain_dir / row["filepath"]
+            path = self.brain_dir / _posix_rel(row["filepath"])
             try:
                 text = path.read_text(encoding="utf-8")
             except FileNotFoundError:
@@ -1101,7 +1111,7 @@ class MemoryStore:
                                (slug, project)).fetchone()
             if row is None:
                 return {"error": f"nessuna scrivania {project}/{slug}"}
-            src = self.brain_dir / row["filepath"]
+            src = self.brain_dir / _posix_rel(row["filepath"])
             dst = self._desk_path(project, slug, archived=True)
             dst.parent.mkdir(parents=True, exist_ok=True)
             now = _utcnow()

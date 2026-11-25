@@ -66,7 +66,7 @@ class Reflector:
             nodes = {n["id"]: n for n in gj["nodes"]}
             with self.store._conn() as conn:
                 rows = conn.execute("SELECT id, filepath FROM memories").fetchall()
-            flat = {r["filepath"].replace("/", "__"): r["id"] for r in rows}
+            flat = {r["filepath"].replace("\\", "/").replace("/", "__"): r["id"] for r in rows}
 
             def mid(node_id):
                 return flat.get((nodes.get(node_id) or {}).get("source_file") or "")

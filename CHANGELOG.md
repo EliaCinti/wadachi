@@ -5,6 +5,23 @@ Format: [Keep a Changelog](https://keepachangelog.com) · versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-11-25
+
+### Fixed — percorsi Windows (`\`) portabili nel database
+
+**Su Windows `store_memory` salvava `memories.filepath` con il separatore `\`**
+(`str(filepath.relative_to(brain_dir))`), rendendo i file irraggiungibili su
+macOS/Linux e rompendo la normalizzazione di `entities.py`, `graph.py`,
+`reflect.py` e `obsidian.py` anche su Windows.
+
+- `store_memory` ora scrive sempre percorsi POSIX con `.as_posix()` (`/`).
+- Difesa in lettura su `store`, `graph`, `entities`, `reflect` e `obsidian`:
+  i brain già creati su Windows funzionano subito anche su macOS/Linux senza
+  interventi manuali.
+- `wadachi doctor` rileva eventuali percorsi con `\` già presenti nel DB senza
+  segnalarli come file mancanti, e `wadachi doctor --fix` li normalizza in `/`
+  nel database.
+
 ## [0.17.0] — 2026-11-22
 
 ### Changed — risposte più leggere: `desk_read` corto, UTF-8 vero, niente doppio JSON
